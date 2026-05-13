@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, afterUpdate, tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import {
     getConfig, saveConfig, getLogs, clearLogs, getProxyStatus,
     startProxy, stopProxy, addOpLog, testProvider, testMapping,
@@ -7,7 +7,10 @@
     type Config, type Provider, type ModelMapping, type RequestLog, type ProxyStatus, type TestResult
   } from "$lib/api";
 
-  // ── state ──────────────────────────────────────────────────────────────────
+  // ── theme ────────────────────────────────────────────────────────────────────
+  let theme = $state<"dark" | "light">("dark");
+
+  // ── config / proxy state ─────────────────────────────────────────────────────
   let config = $state<Config | null>(null);
   let logs = $state<RequestLog[]>([]);
   let status = $state<ProxyStatus | null>(null);
@@ -15,66 +18,98 @@
   let selectedLog = $state<RequestLog | null>(null);
   let toast = $state("");
 
-  // provider modal
+  // ── log panel ────────────────────────────────────────────────────────────────
+  let logsExpanded = $state(false);
+  let logContainer = $state<HTMLElement | null>(null);
+  let autoScroll = $state(true);
+
+  // ── provider modal ───────────────────────────────────────────────────────────
   let showProviderModal = $state(false);
   let providerPreset = $state("deepseek");
-  let customProviderName = $state("");
   let editingProviderIdx = $state<number | null>(null);
   let providerForm = $state<Provider>({ id: "", name: "", base_url: "", api_key: "", default_model: "" });
   let showProviderKey = $state(false);
 
-  // provider inline edit
+  // ── provider inline edit ─────────────────────────────────────────────────────
   let inlineProviderIdx = $state<number | null>(null);
   let inlineProviderForm = $state<Provider>({ id: "", name: "", base_url: "", api_key: "", default_model: "" });
   let showInlineKey = $state(false);
 
-  // mapping modal
+  // ── provider key visibility per row ───────────────────────────────────────────
+  let visibleKeys = $state<Record<number, boolean>>({});
+  let visibleKeysInline = $state<Record<number, boolean>>({});
+
+  // ── mapping modal ────────────────────────────────────────────────────────────
   let showMappingModal = $state(false);
   let editingMappingIdx = $state<number | null>(null);
   let mappingForm = $state<ModelMapping>({ from: "", to_provider: "", to_model: "" });
 
-  // mapping inline edit
+  // ── mapping inline edit ──────────────────────────────────────────────────────
   let inlineMappingIdx = $state<number | null>(null);
   let inlineMappingForm = $state<ModelMapping>({ from: "", to_provider: "", to_model: "" });
 
-  // connection info modal
+  // ── connection info modal ────────────────────────────────────────────────────
   let showConnInfo = $state(false);
 
-  // test states
+  // ── test states ──────────────────────────────────────────────────────────────
   let testingProvider = $state<string | null>(null);
-  let providerTestResult = $state<Record<string, TestResult>>({});
+  let providerBtnLabel = $state<Record<string, string>>({});
   let testingMapping = $state<number | null>(null);
-  let mappingTestResult = $state<Record<number, TestResult>>({});
+  let mappingBtnLabel = $state<Record<number, string>>({});
 
-  // ── lifecycle ──────────────────────────────────────────────────────────────
+  // ── lifecycle ────────────────────────────────────────────────────────────────
   onMount(() => {
+    // load saved theme
+    const saved = localStorage.getItem("theme");
+    if (saved === "light" || saved === "dark") theme = saved;
     loadAll();
     const iv = setInterval(refresh, 3000);
     return () => clearInterval(iv);
   });
 
+  $effect(() => {
+    localStorage.setItem("theme", theme);
+  });
+
+  $effect(() => {
+    // scroll to bottom on new logs
+    logs;
+    tick().then(() => {
+      if (logContainer && autoScroll) {
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+    });
+  });
+
+  function onLogScroll() {
+    if (!logContainer) return;
+    const el = logContainer;
+    autoScroll = (el.scrollHeight - el.scrollTop - el.clientHeight) < 50;
+  }
+
   async function loadAll() {
     try {
-      [config, status, logs] = await Promise.all([getConfig(), getProxyStatus(), getLogs(100)]);
+      [config, status, logs] = await Promise.all([getConfig(), getProxyStatus(), getLogs(200)]);
     } catch (e) { console.error(e); }
   }
 
   async function refresh() {
     try {
       status = await getProxyStatus();
-      logs = await getLogs(100);
+      logs = await getLogs(200);
     } catch {}
   }
 
   function showToast(msg: string) { toast = msg; setTimeout(() => toast = "", 3000); }
 
-  // ── proxy control ──────────────────────────────────────────────────────────
+  // ── proxy control ────────────────────────────────────────────────────────────
   async function handleStart() {
     loading = true;
     try {
       await startProxy();
       status = await getProxyStatus();
       await addOpLog("启动代理", `端口 ${status?.port}`);
+      logsExpanded = true;
       showToast("✓ 代理已启动");
     } catch (e: any) { showToast("✗ " + e); }
     loading = false;
@@ -97,13 +132,24 @@
     await addOpLog("修改端口", String(config.proxy.port));
   }
 
-  // ── provider modal ─────────────────────────────────────────────────────────
+  // ── provider modal ───────────────────────────────────────────────────────────
   function openAddProvider() {
     editingProviderIdx = null;
     providerPreset = "deepseek";
-    customProviderName = "";
     const p = PRESET_PROVIDERS["deepseek"];
     providerForm = { id: "deepseek", name: p.name, base_url: p.base_url, api_key: "", default_model: p.models[0] || "" };
+    showProviderKey = false;
+    showProviderModal = true;
+  }
+
+  function openEditProvider(idx: number) {
+    if (!config) return;
+    editingProviderIdx = idx;
+    const prov = config.providers[idx];
+    // try to match a preset by name
+    const presetKey = Object.keys(PRESET_PROVIDERS).find(k => k !== "custom" && PRESET_PROVIDERS[k].name === prov.name);
+    providerPreset = presetKey || "custom";
+    providerForm = { ...prov };
     showProviderKey = false;
     showProviderModal = true;
   }
@@ -112,7 +158,7 @@
     const p = PRESET_PROVIDERS[providerPreset];
     if (!p) return;
     if (providerPreset === "custom") {
-      providerForm = { id: "", name: customProviderName, base_url: "", api_key: "", default_model: "" };
+      providerForm = { id: "", name: providerForm.name, base_url: "", api_key: providerForm.api_key, default_model: "" };
     } else {
       providerForm = { id: providerPreset, name: p.name, base_url: p.base_url, api_key: providerForm.api_key, default_model: p.models[0] || "" };
     }
@@ -120,8 +166,15 @@
 
   async function saveProviderModal() {
     if (!config) return;
-    const name = providerPreset === "custom" ? customProviderName : providerForm.name;
+    const name = providerForm.name.trim();
     if (!name || !providerForm.base_url || !providerForm.api_key) { showToast("请填写完整信息"); return; }
+
+    // duplicate name check ONLY when adding new (not editing)
+    if (editingProviderIdx === null) {
+      const dup = config.providers.some(p => p.name.toLowerCase() === name.toLowerCase());
+      if (dup) { showToast("❌ 提供商名称已存在"); return; }
+    }
+
     const id = providerForm.id || name.toLowerCase().replace(/\s+/g, "_");
     const entry: Provider = { ...providerForm, id, name };
     if (editingProviderIdx !== null) {
@@ -138,7 +191,7 @@
     showProviderModal = false;
   }
 
-  // ── provider inline edit ───────────────────────────────────────────────────
+  // ── provider inline edit ─────────────────────────────────────────────────────
   function startInlineProvider(idx: number) {
     if (!config) return;
     inlineProviderIdx = idx;
@@ -148,10 +201,14 @@
 
   async function saveInlineProvider() {
     if (!config || inlineProviderIdx === null) return;
+    const name = inlineProviderForm.name;
+    if (!name || !inlineProviderForm.base_url || !inlineProviderForm.api_key) { showToast("请填写完整信息"); return; }
+
     config.providers[inlineProviderIdx] = { ...inlineProviderForm };
     await saveConfig(config);
-    await addOpLog("编辑提供商", inlineProviderForm.name);
+    await addOpLog("编辑提供商", name);
     inlineProviderIdx = null;
+    visibleKeysInline[inlineProviderIdx] = false;
     showToast("✓ 已保存");
   }
 
@@ -159,15 +216,29 @@
     if (!config) return;
     const name = config.providers[idx].name;
     config.providers = config.providers.filter((_, i) => i !== idx);
+    // rebuild visible keys to re-index
+    const newVis: Record<number, boolean> = {};
+    Object.keys(visibleKeys).forEach(k => {
+      const ki = parseInt(k);
+      if (ki !== idx) newVis[ki > idx ? ki - 1 : ki] = visibleKeys[ki];
+    });
+    Object.assign(visibleKeys, newVis);
     await saveConfig(config);
     await addOpLog("删除提供商", name);
     showToast("✓ 已删除");
   }
 
-  // ── mapping modal ──────────────────────────────────────────────────────────
+  // ── mapping modal ────────────────────────────────────────────────────────────
   function openAddMapping() {
     editingMappingIdx = null;
     mappingForm = { from: "", to_provider: config?.providers[0]?.id || "", to_model: "" };
+    showMappingModal = true;
+  }
+
+  function openEditMapping(idx: number) {
+    if (!config) return;
+    editingMappingIdx = idx;
+    mappingForm = { ...config.model_mappings[idx] };
     showMappingModal = true;
   }
 
@@ -187,7 +258,7 @@
     showMappingModal = false;
   }
 
-  // ── mapping inline edit ────────────────────────────────────────────────────
+  // ── mapping inline edit ──────────────────────────────────────────────────────
   function startInlineMapping(idx: number) {
     if (!config) return;
     inlineMappingIdx = idx;
@@ -196,6 +267,7 @@
 
   async function saveInlineMapping() {
     if (!config || inlineMappingIdx === null) return;
+    if (!inlineMappingForm.from || !inlineMappingForm.to_provider || !inlineMappingForm.to_model) { showToast("请填写完整信息"); return; }
     config.model_mappings[inlineMappingIdx] = { ...inlineMappingForm };
     await saveConfig(config);
     await addOpLog("编辑映射", inlineMappingForm.from);
@@ -212,62 +284,95 @@
     showToast("✓ 已删除");
   }
 
-  // ── test ───────────────────────────────────────────────────────────────────
+  // ── test ─────────────────────────────────────────────────────────────────────
   async function handleTestProvider(id: string) {
     testingProvider = id;
-    try { providerTestResult[id] = await testProvider(id); }
-    catch (e: any) { providerTestResult[id] = { success: false, message: String(e), latency_ms: 0 }; }
+    let r: TestResult;
+    try { r = await testProvider(id); }
+    catch (e: any) { r = { success: false, message: String(e), latency_ms: 0 }; }
     testingProvider = null;
+    const label = r.success
+      ? (r.latency_ms <= 2000 ? `✓ ${r.latency_ms}ms` : `⚠ ${r.latency_ms}ms`)
+      : `✗ ${r.message.slice(0, 20)}`;
+    providerBtnLabel[id] = label;
+    setTimeout(() => { providerBtnLabel[id] = ""; }, 5000);
   }
 
   async function handleTestMapping(idx: number) {
     testingMapping = idx;
-    try { mappingTestResult[idx] = await testMapping(idx); }
-    catch (e: any) { mappingTestResult[idx] = { success: false, message: String(e), latency_ms: 0 }; }
+    let r: TestResult;
+    try { r = await testMapping(idx); }
+    catch (e: any) { r = { success: false, message: String(e), latency_ms: 0 }; }
     testingMapping = null;
+    const label = r.success
+      ? (r.latency_ms <= 2000 ? `✓ ${r.latency_ms}ms` : `⚠ ${r.latency_ms}ms`)
+      : `✗ ${r.message.slice(0, 20)}`;
+    mappingBtnLabel[idx] = label;
+    setTimeout(() => { mappingBtnLabel[idx] = ""; }, 5000);
   }
 
-  function testColor(r: TestResult) {
-    if (!r.success) return "test-fail";
-    return r.latency_ms <= 2000 ? "test-ok" : "test-warn";
+  function testBtnClass(id: string) {
+    const label = providerBtnLabel[id];
+    if (!label) return "btn-test";
+    if (label.startsWith("✓")) return "btn-test test-ok-btn";
+    if (label.startsWith("⚠")) return "btn-test test-warn-btn";
+    return "btn-test test-fail-btn";
   }
 
-  // ── logs ───────────────────────────────────────────────────────────────────
+  function mapTestBtnClass(idx: number) {
+    const label = mappingBtnLabel[idx];
+    if (!label) return "btn-test";
+    if (label.startsWith("✓")) return "btn-test test-ok-btn";
+    if (label.startsWith("⚠")) return "btn-test test-warn-btn";
+    return "btn-test test-fail-btn";
+  }
+
+  // ── logs ─────────────────────────────────────────────────────────────────────
   async function handleClearLogs() { await clearLogs(); logs = []; }
 
-  // ── copy ───────────────────────────────────────────────────────────────────
-  function copy(text: string) { navigator.clipboard.writeText(text); showToast("✓ Copied"); }
+  // ── copy ─────────────────────────────────────────────────────────────────────
+  async function copy(text: string) {
+    try { await navigator.clipboard.writeText(text); } catch {}
+    showToast("✓ 已复制");
+  }
 </script>
 
-<div class="app">
+<div class="app" data-theme={theme}>
   {#if toast}<div class="toast">{toast}</div>{/if}
 
+  <!-- ── Header ── -->
   <header>
-    <h1>CC Proxy</h1>
+    <div class="header-left">
+      <h1>CC Proxy</h1>
+      <button class="theme-toggle" onclick={() => theme = theme === "dark" ? "light" : "dark"} title={theme === "dark" ? "切换到亮色模式" : "切换到暗色模式"}>
+        {theme === "dark" ? "☀" : "🌙"}
+      </button>
+    </div>
     <div class="header-right">
       {#if status?.running}
         <span class="status-dot"></span>
-        <span class="status-text">Running &middot; Port {status.port}</span>
-        <button class="btn-info" onclick={() => showConnInfo = true}>Connection Info</button>
-        <button class="btn-stop" onclick={handleStop} disabled={loading}>{loading ? "Stopping..." : "Stop"}</button>
+        <span class="status-text">运行中 · 端口 {status.port}</span>
+        <button class="btn-info" onclick={() => showConnInfo = true}>连接信息</button>
+        <button class="btn-stop" onclick={handleStop} disabled={loading}>{loading ? "停止中..." : "停止"}</button>
       {:else}
         <button class="btn-start" onclick={handleStart} disabled={loading}>
-          {#if loading}<span class="spinner"></span> Starting...{:else}Start{/if}
+          {#if loading}<span class="spinner"></span> 启动中...{:else}▶ 启动{/if}
         </button>
       {/if}
     </div>
   </header>
 
+  <!-- ── Split Layout ── -->
   <div class="split-layout">
-    <!-- LEFT PANEL: Config -->
+    <!-- LEFT: Config -->
     <div class="panel panel-left">
 
       <!-- Proxy Settings -->
       <section class="section">
-        <div class="section-header"><h2>Proxy Settings</h2></div>
+        <div class="section-header"><h2>代理设置</h2></div>
         {#if config}
           <div class="card">
-            <label class="port-label">Port
+            <label class="port-label">端口
               <input type="number" bind:value={config.proxy.port} onchange={onPortChange} style="width:100px" />
             </label>
           </div>
@@ -277,7 +382,7 @@
       <!-- Providers -->
       <section class="section">
         <div class="section-header">
-          <h2>Providers</h2>
+          <h2>提供商</h2>
           <button class="btn-primary" onclick={openAddProvider}>+ 添加</button>
         </div>
         {#if config && config.providers.length > 0}
@@ -292,31 +397,31 @@
                       <td><input bind:value={inlineProviderForm.base_url} /></td>
                       <td>
                         <div class="input-toggle">
-                          <input type={showInlineKey ? "text" : "password"} bind:value={inlineProviderForm.api_key} />
-                          <button type="button" class="toggle-btn" onclick={() => showInlineKey = !showInlineKey}>{showInlineKey ? "🔒" : "👁"}</button>
+                          <input type={visibleKeysInline[idx] ? "text" : "password"} bind:value={inlineProviderForm.api_key} />
+                          <button type="button" class="toggle-btn" onclick={() => visibleKeysInline[idx] = !visibleKeysInline[idx]}>{visibleKeysInline[idx] ? "🔒" : "👁"}</button>
                         </div>
                       </td>
                       <td><input bind:value={inlineProviderForm.default_model} /></td>
                       <td class="act">
                         <button class="btn-sm btn-save" onclick={saveInlineProvider}>保存</button>
-                        <button class="btn-sm" onclick={() => inlineProviderIdx = null}>取消</button>
+                        <button class="btn-sm" onclick={() => { inlineProviderIdx = null; visibleKeysInline[idx] = false; }}>取消</button>
                       </td>
                     </tr>
                   {:else}
                     <tr>
                       <td><strong>{provider.name}</strong></td>
                       <td class="cell-url">{provider.base_url}</td>
-                      <td class="cell-key">{"•".repeat(Math.min(provider.api_key.length, 12))}</td>
+                      <td class="cell-key">
+                        <span class="key-mask">{visibleKeys[idx] ? provider.api_key : "•".repeat(Math.min(provider.api_key.length, 12))}</span>
+                        <button class="icon-btn" onclick={() => visibleKeys[idx] = !visibleKeys[idx]} title={visibleKeys[idx] ? "隐藏" : "显示"}>{visibleKeys[idx] ? "🔒" : "👁"}</button>
+                        <button class="icon-btn" onclick={() => { copy(provider.api_key); }} title="复制">📋</button>
+                      </td>
                       <td><code>{provider.default_model}</code></td>
                       <td class="act">
-                        <button class="btn-sm btn-test" onclick={() => handleTestProvider(provider.id)} disabled={testingProvider === provider.id}>
-                          {testingProvider === provider.id ? "..." : "测试"}
+                        <button class="btn-sm {testBtnClass(provider.id)}" onclick={() => handleTestProvider(provider.id)} disabled={testingProvider === provider.id || !!providerBtnLabel[provider.id]}>
+                          {providerBtnLabel[provider.id] || (testingProvider === provider.id ? "..." : "测试")}
                         </button>
-                        {#if providerTestResult[provider.id]}
-                          {@const r = providerTestResult[provider.id]}
-                          <span class="test-badge {testColor(r)}" title={r.message}>{r.success ? "✓" : "✗"} {r.latency_ms}ms</span>
-                        {/if}
-                        <button class="btn-sm" onclick={() => startInlineProvider(idx)}>编辑</button>
+                        <button class="btn-sm" onclick={() => openEditProvider(idx)}>编辑</button>
                         <button class="btn-sm btn-del" onclick={() => deleteProvider(idx)}>删除</button>
                       </td>
                     </tr>
@@ -333,7 +438,7 @@
       <!-- Model Mappings -->
       <section class="section">
         <div class="section-header">
-          <h2>Model Mappings</h2>
+          <h2>模型映射</h2>
           <button class="btn-primary" onclick={openAddMapping}>+ 添加</button>
         </div>
         {#if config && config.model_mappings.length > 0}
@@ -368,14 +473,10 @@
                       <td>{config.providers.find(p => p.id === mapping.to_provider)?.name ?? mapping.to_provider}</td>
                       <td><code>{mapping.to_model}</code></td>
                       <td class="act">
-                        <button class="btn-sm btn-test" onclick={() => handleTestMapping(idx)} disabled={testingMapping === idx}>
-                          {testingMapping === idx ? "..." : "测试"}
+                        <button class="btn-sm {mapTestBtnClass(idx)}" onclick={() => handleTestMapping(idx)} disabled={testingMapping === idx || !!mappingBtnLabel[idx]}>
+                          {mappingBtnLabel[idx] || (testingMapping === idx ? "..." : "测试")}
                         </button>
-                        {#if mappingTestResult[idx]}
-                          {@const r = mappingTestResult[idx]}
-                          <span class="test-badge {testColor(r)}" title={r.message}>{r.success ? "✓" : "✗"} {r.latency_ms}ms</span>
-                        {/if}
-                        <button class="btn-sm" onclick={() => startInlineMapping(idx)}>编辑</button>
+                        <button class="btn-sm" onclick={() => openEditMapping(idx)}>编辑</button>
                         <button class="btn-sm btn-del" onclick={() => deleteMapping(idx)}>删除</button>
                       </td>
                     </tr>
@@ -390,42 +491,60 @@
       </section>
     </div>
 
-    <!-- RIGHT PANEL: Logs -->
-    <div class="panel panel-right">
-      <div class="section-header">
-        <h2>Logs</h2>
-        <button class="btn-secondary" onclick={handleClearLogs}>Clear</button>
-      </div>
-      {#if logs.length === 0}
-        <p class="empty">No logs yet</p>
+    <!-- RIGHT: Log Panel -->
+    <div class="panel panel-right" class:collapsed={!logsExpanded}>
+      {#if logsExpanded}
+        <div class="log-header">
+          <button class="log-collapse-btn" onclick={() => logsExpanded = !logsExpanded}>
+            日志 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>
+          </button>
+          <div class="log-controls">
+            <label class="autoscroll-label">
+              <input type="checkbox" checked={autoScroll} onchange={() => autoScroll = !autoScroll} />
+              自动滚动
+            </label>
+            <button class="btn-secondary" onclick={handleClearLogs}>清空</button>
+          </div>
+        </div>
+        {#if logs.length === 0}
+          <p class="empty">暂无日志</p>
+        {:else}
+          <div class="log-terminal" bind:this={logContainer} onscroll={onLogScroll}>
+            {#each logs as log}
+              <div class="log-line {log.method === 'OP' ? '' : 'log-clickable'}" onclick={() => log.method !== 'OP' && (selectedLog = log)}>
+                <span class="log-time">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                {#if log.method === 'OP'}
+                  <span class="badge badge-op">OP</span>
+                  <span class="log-msg">{log.path}</span>
+                  {#if log.response_body && typeof log.response_body === 'string' && log.response_body}
+                    <span class="log-detail">{log.response_body}</span>
+                  {/if}
+                {:else}
+                  <span class="badge badge-method">{log.method}</span>
+                  <span class="log-msg">{log.path}</span>
+                  {#if log.model_in}<span class="log-model">{log.model_in}{log.model_out ? " → " + log.model_out : ""}</span>{/if}
+                  <span class="badge {log.status >= 400 ? 'badge-err' : 'badge-ok'}">{log.status}</span>
+                  <span class="log-lat">{log.latency_ms}ms</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
       {:else}
-        <div class="log-list">
-          {#each logs as log}
-            <div class="log-row {log.method === 'OP' ? '' : 'log-clickable'}" onclick={() => log.method !== 'OP' && (selectedLog = log)}>
-              <span class="log-time">{new Date(log.timestamp).toLocaleTimeString()}</span>
-              {#if log.method === 'OP'}
-                <span class="badge badge-op">OP</span>
-                <span class="log-path">{log.path}</span>
-              {:else}
-                <span class="badge badge-method">{log.method}</span>
-                <span class="log-path">{log.path}</span>
-                {#if log.model_in}<span class="log-model">{log.model_in}{log.model_out ? " → " + log.model_out : ""}</span>{/if}
-                <span class="badge {log.status >= 400 ? 'badge-err' : 'badge-ok'}">{log.status}</span>
-                <span class="log-lat">{log.latency_ms}ms</span>
-              {/if}
-            </div>
-          {/each}
+        <div class="log-collapse-bar" onclick={() => logsExpanded = !logsExpanded}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 6l-6 6 6 6"/></svg>
+          <span class="log-collapse-label">日志</span>
         </div>
       {/if}
     </div>
   </div>
 
-  <!-- Log Detail Modal -->
+  <!-- ── Log Detail Modal ── -->
   {#if selectedLog}
     <div class="overlay" role="dialog" aria-modal="true">
-      <div class="modal">
+      <div class="modal" onclick={(e: MouseEvent) => e.stopPropagation()}>
         <div class="modal-head">
-          <h3>Request Detail</h3>
+          <h3>请求详情</h3>
           <button onclick={() => selectedLog = null}>✕</button>
         </div>
         <div class="modal-body">
@@ -438,26 +557,24 @@
     </div>
   {/if}
 
-  <!-- Provider Modal -->
+  <!-- ── Provider Modal ── -->
   {#if showProviderModal}
     <div class="overlay" role="dialog" aria-modal="true">
-      <div class="modal">
+      <div class="modal" onclick={(e: MouseEvent) => e.stopPropagation()}>
         <div class="modal-head">
           <h3>{editingProviderIdx !== null ? "编辑提供商" : "添加提供商"}</h3>
           <button onclick={() => showProviderModal = false}>✕</button>
         </div>
         <div class="modal-body">
           <div class="form-row">
-            <label>Provider
+            <label>预设
               <select bind:value={providerPreset} onchange={onPresetChange}>
                 {#each Object.entries(PRESET_PROVIDERS) as [key, val]}
                   <option value={key}>{val.name}</option>
                 {/each}
               </select>
             </label>
-            {#if providerPreset === "custom"}
-              <label>Name <input bind:value={customProviderName} placeholder="My Provider" /></label>
-            {/if}
+            <label>名称 <input bind:value={providerForm.name} placeholder="提供商名称" /></label>
           </div>
           <div class="form-row">
             <label>Base URL <input bind:value={providerForm.base_url} placeholder="https://api.example.com" /></label>
@@ -469,7 +586,7 @@
                 <button type="button" class="toggle-btn" onclick={() => showProviderKey = !showProviderKey}>{showProviderKey ? "🔒" : "👁"}</button>
               </div>
             </label>
-            <label>Default Model
+            <label>默认模型
               <input list="modal-def-models" bind:value={providerForm.default_model} placeholder="model-name" />
               <datalist id="modal-def-models">{#each (PRESET_PROVIDERS[providerPreset]?.models ?? []) as m}<option value={m}></option>{/each}</datalist>
             </label>
@@ -483,10 +600,10 @@
     </div>
   {/if}
 
-  <!-- Mapping Modal -->
+  <!-- ── Mapping Modal ── -->
   {#if showMappingModal}
     <div class="overlay" role="dialog" aria-modal="true">
-      <div class="modal">
+      <div class="modal" onclick={(e: MouseEvent) => e.stopPropagation()}>
         <div class="modal-head">
           <h3>{editingMappingIdx !== null ? "编辑映射" : "添加映射"}</h3>
           <button onclick={() => showMappingModal = false}>✕</button>
@@ -518,54 +635,54 @@
     </div>
   {/if}
 
-  <!-- Connection Info Modal -->
+  <!-- ── Connection Info Modal ── -->
   {#if showConnInfo && config && status}
     <div class="overlay" role="dialog" aria-modal="true">
-      <div class="modal">
+      <div class="modal" onclick={(e: MouseEvent) => e.stopPropagation()}>
         <div class="modal-head">
-          <h3>Connection Info</h3>
+          <h3>连接信息</h3>
           <button onclick={() => showConnInfo = false}>✕</button>
         </div>
         <div class="modal-body conn-info">
           <div class="ci-row">
-            <span class="ci-label">Base URL</span>
+            <span class="ci-label">服务地址</span>
             <code>http://{status.host}:{status.port}</code>
-            <button class="btn-copy" onclick={() => copy(`http://${status!.host}:${status!.port}`)}>Copy</button>
+            <button class="btn-copy" onclick={() => copy(`http://${status!.host}:${status!.port}`)}>复制</button>
           </div>
           <div class="ci-row">
-            <span class="ci-label">Chat Completions</span>
+            <span class="ci-label">Chat 接口</span>
             <code>http://{status.host}:{status.port}/v1/chat/completions</code>
-            <button class="btn-copy" onclick={() => copy(`http://${status!.host}:${status!.port}/v1/chat/completions`)}>Copy</button>
+            <button class="btn-copy" onclick={() => copy(`http://${status!.host}:${status!.port}/v1/chat/completions`)}>复制</button>
           </div>
           <div class="ci-row">
-            <span class="ci-label">Responses API</span>
+            <span class="ci-label">Responses 接口</span>
             <code>http://{status.host}:{status.port}/v1/responses</code>
-            <button class="btn-copy" onclick={() => copy(`http://${status!.host}:${status!.port}/v1/responses`)}>Copy</button>
+            <button class="btn-copy" onclick={() => copy(`http://${status!.host}:${status!.port}/v1/responses`)}>复制</button>
           </div>
           <div class="ci-row">
-            <span class="ci-label">Models</span>
+            <span class="ci-label">Models 接口</span>
             <code>http://{status.host}:{status.port}/v1/models</code>
-            <button class="btn-copy" onclick={() => copy(`http://${status!.host}:${status!.port}/v1/models`)}>Copy</button>
+            <button class="btn-copy" onclick={() => copy(`http://${status!.host}:${status!.port}/v1/models`)}>复制</button>
           </div>
           <hr class="ci-divider" />
-          <div class="ci-section-label">Available Model Mappings</div>
+          <div class="ci-section-label">可用模型映射</div>
           {#each config.model_mappings as m}
             <div class="ci-row ci-model-row">
               <code>{m.from}</code>
               <span class="ci-arrow">→</span>
               <span>{config.providers.find(p => p.id === m.to_provider)?.name ?? m.to_provider}</span>
               <code>{m.to_model}</code>
-              <button class="btn-copy-sm" onclick={() => copy(m.from)}>Copy</button>
+              <button class="btn-copy-sm" onclick={() => copy(m.from)}>复制</button>
             </div>
           {/each}
           <hr class="ci-divider" />
-          <div class="ci-section-label">Config Example</div>
+          <div class="ci-section-label">配置示例</div>
           <div class="ci-row ci-pre-row">
             <pre class="ci-pre">ANTHROPIC_BASE_URL=http://{status.host}:{status.port}
-# Codex CLI
+# Codex / OpenAI 兼容
 OPENAI_BASE_URL=http://{status.host}:{status.port}/v1</pre>
             <button class="btn-copy" onclick={() => copy(`ANTHROPIC_BASE_URL=http://${status!.host}:${status!.port}
-OPENAI_BASE_URL=http://${status!.host}:${status!.port}/v1`)}>Copy</button>
+OPENAI_BASE_URL=http://${status!.host}:${status!.port}/v1`)}>复制</button>
           </div>
         </div>
       </div>
@@ -574,105 +691,422 @@ OPENAI_BASE_URL=http://${status!.host}:${status!.port}/v1`)}>Copy</button>
 </div>
 
 <style>
-  :global(html, body) { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  .app { height: 100vh; display: flex; flex-direction: column; background: #f5f7fa; color: #1a1a2e; overflow: hidden; }
-  header { display: flex; align-items: center; gap: 16px; padding: 10px 20px; background: #fff; border-bottom: 1px solid #e8ecf0; flex-shrink: 0; }
-  header h1 { margin: 0; font-size: 1.15rem; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; }
+  /* ═══════════════════════════════════════════════════════════════════════════
+     CSS Variables (Light theme defaults)
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .app {
+    --bg-app: #f5f7fa;
+    --bg-panel: #f5f7fa;
+    --bg-card: #ffffff;
+    --bg-input: #fafbfc;
+    --bg-input-focus: #ffffff;
+    --bg-table-head: #f8f9fb;
+    --bg-table-hover: #f8f9fb;
+    --bg-editing-row: #f0f4ff;
+    --bg-overlay: rgba(0, 0, 0, 0.45);
+    --bg-toast: #1a1a2e;
+    --text-primary: #1a1a2e;
+    --text-secondary: #555555;
+    --text-muted: #888888;
+    --text-toast: #ffffff;
+    --border: #e8ecf0;
+    --border-light: #f3f4f6;
+    --border-input: #dddddd;
+    --accent: #667eea;
+    --accent-hover: #5a6fd6;
+    --accent-light: #eef2ff;
+    --accent-bg: #dbeafe;
+    --danger: #ef4444;
+    --danger-hover: #dc2626;
+    --danger-light: #fef2f2;
+    --danger-border: #fecaca;
+    --success: #16a34a;
+    --success-light: #f0fdf4;
+    --success-bg: #dcfce7;
+    --warn: #b45309;
+    --warn-bg: #fef3c7;
+    --modal-bg: #ffffff;
+    --modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    --header-bg: #ffffff;
+    --header-border: #e8ecf0;
+    --badge-ok-bg: #dcfce7;
+    --badge-ok-color: #166534;
+    --badge-err-bg: #fef2f2;
+    --badge-err-color: #991b1b;
+    --badge-op-bg: #dbeafe;
+    --badge-op-color: #1d4ed8;
+    --badge-method-bg: #e4e7ec;
+    --badge-method-color: #555555;
+    --btn-secondary-bg: #e4e7ec;
+    --btn-secondary-color: #555555;
+    --btn-secondary-hover-bg: #d8dbe0;
+    --btn-sm-bg: #ffffff;
+    --btn-sm-border: #dddddd;
+    --btn-sm-hover-bg: #f5f5f5;
+    --code-bg: #f0f2f5;
+    --modal-head-border: #e8ecf0;
+    --status-text-color: #16a34a;
+    --toggle-btn-opacity: 0.7;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Dark theme overrides
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .app[data-theme="dark"] {
+    --bg-app: #111827;
+    --bg-panel: #111827;
+    --bg-card: #1f2937;
+    --bg-input: #374151;
+    --bg-input-focus: #374151;
+    --bg-table-head: #1f2937;
+    --bg-table-hover: #1f2937;
+    --bg-editing-row: #111827;
+    --bg-overlay: rgba(0, 0, 0, 0.7);
+    --bg-toast: #374151;
+    --text-primary: #e5e7eb;
+    --text-secondary: #9ca3af;
+    --text-muted: #6b7280;
+    --text-toast: #e5e7eb;
+    --border: #374151;
+    --border-light: #1f2937;
+    --border-input: #4b5563;
+    --accent: #818cf8;
+    --accent-hover: #6366f1;
+    --accent-light: rgba(129, 140, 248, 0.1);
+    --accent-bg: rgba(129, 140, 248, 0.15);
+    --danger: #f87171;
+    --danger-hover: #ef4444;
+    --danger-light: rgba(248, 113, 113, 0.1);
+    --danger-border: rgba(248, 113, 113, 0.3);
+    --success: #4ade80;
+    --success-light: rgba(74, 222, 128, 0.1);
+    --success-bg: rgba(74, 222, 128, 0.15);
+    --warn: #fbbf24;
+    --warn-bg: rgba(251, 191, 36, 0.15);
+    --modal-bg: #1f2937;
+    --modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    --header-bg: #1f2937;
+    --header-border: #374151;
+    --badge-ok-bg: rgba(74, 222, 128, 0.15);
+    --badge-ok-color: #4ade80;
+    --badge-err-bg: rgba(248, 113, 113, 0.15);
+    --badge-err-color: #f87171;
+    --badge-op-bg: rgba(129, 140, 248, 0.15);
+    --badge-op-color: #818cf8;
+    --badge-method-bg: #374151;
+    --badge-method-color: #9ca3af;
+    --btn-secondary-bg: #374151;
+    --btn-secondary-color: #d1d5db;
+    --btn-secondary-hover-bg: #4b5563;
+    --btn-sm-bg: #374151;
+    --btn-sm-border: #4b5563;
+    --btn-sm-hover-bg: #4b5563;
+    --code-bg: #374151;
+    --modal-head-border: #374151;
+    --status-text-color: #4ade80;
+    --toggle-btn-opacity: 0.8;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Global reset
+     ═══════════════════════════════════════════════════════════════════════════ */
+  :global(html, body) {
+    margin: 0; padding: 0; height: 100%;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  }
+
+  .app {
+    height: 100vh; display: flex; flex-direction: column;
+    background: var(--bg-app); color: var(--text-primary); overflow: hidden;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Header
+     ═══════════════════════════════════════════════════════════════════════════ */
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+    background: var(--header-bg); border-bottom: 1px solid var(--header-border);
+    flex-shrink: 0;
+  }
+
+  .header-left {
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  header h1 {
+    margin: 0; font-size: 1.15rem;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    font-weight: 700; letter-spacing: -0.3px;
+  }
+
+  .theme-toggle {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 1rem; cursor: pointer; padding: 3px 7px; line-height: 1;
+    color: var(--text-primary);
+  }
+  .theme-toggle:hover { background: var(--bg-input); }
+
   .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; animation: pulse 2s infinite; flex-shrink: 0; }
-  .status-text { font-size: 0.8rem; color: #16a34a; font-weight: 500; }
+
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success); animation: pulse 2s infinite; flex-shrink: 0;
+  }
+  .status-text { font-size: 0.8rem; color: var(--status-text-color); font-weight: 500; }
+
   @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
-  .btn-start { padding: 7px 18px; background: #667eea; color: #fff; border: none; border-radius: 7px; font-size: 0.82rem; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 5px; }
-  .btn-start:hover { background: #5a6fd6; } .btn-start:disabled { opacity: 0.6; cursor: not-allowed; }
-  .btn-stop { padding: 7px 14px; background: #ef4444; color: #fff; border: none; border-radius: 7px; font-size: 0.82rem; cursor: pointer; }
-  .btn-stop:hover { background: #dc2626; } .btn-stop:disabled { opacity: 0.6; cursor: not-allowed; }
-  .btn-info { padding: 6px 12px; background: #dbeafe; color: #1d4ed8; border: none; border-radius: 6px; font-size: 0.78rem; cursor: pointer; font-weight: 500; }
-  .btn-info:hover { background: #bfdbfe; }
-  .spinner { width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .toast { position: fixed; top: 56px; right: 20px; background: #1a1a2e; color: #fff; padding: 9px 18px; border-radius: 7px; font-size: 0.82rem; z-index: 999; animation: fadeIn 0.2s; }
-  @keyframes fadeIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; } }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Split layout
+     ═══════════════════════════════════════════════════════════════════════════ */
   .split-layout { display: flex; flex: 1; overflow: hidden; }
-  .panel { display: flex; flex-direction: column; overflow-y: auto; padding: 20px; }
-  .panel-left { flex: 55; border-right: 1px solid #e0e4ea; background: #f5f7fa; }
-  .panel-right { flex: 45; background: #f0f2f5; }
-  @media (max-width: 700px) { .split-layout { flex-direction: column; } .panel-left { border-right: none; border-bottom: 1px solid #e0e4ea; } }
+
+  .panel-left {
+    flex: 1; overflow-y: auto; padding: 20px;
+    background: var(--bg-panel);
+  }
+
+  .panel-right {
+    flex-shrink: 0; overflow: hidden; display: flex; flex-direction: column;
+    border-left: 1px solid var(--border);
+    background: var(--bg-panel);
+  }
+  .panel-right:not(.collapsed) {
+    flex: 0 0 45%;
+  }
+  .panel-right.collapsed {
+    width: 42px;
+  }
+
+  @media (max-width: 700px) {
+    .split-layout { flex-direction: column; }
+    .panel-left { border-bottom: 1px solid var(--border); }
+    .panel-right:not(.collapsed) { flex: 0 0 50%; }
+    .panel-right.collapsed { width: 100%; height: 38px; border-left: none; border-top: 1px solid var(--border); }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Sections, Cards, Tables
+     ═══════════════════════════════════════════════════════════════════════════ */
   .section { margin-bottom: 28px; }
   .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .section-header h2 { margin: 0; font-size: 0.95rem; font-weight: 600; color: #333; }
-  .card { background: #fff; border-radius: 9px; padding: 14px 18px; border: 1px solid #e8ecf0; }
-  .port-label { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: #555; font-weight: 500; }
-  .table-wrap { background: #fff; border-radius: 9px; overflow: hidden; border: 1px solid #e8ecf0; }
+  .section-header h2 { margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-primary); letter-spacing: -0.2px; }
+
+  .card {
+    background: var(--bg-card); border-radius: 9px; padding: 14px 18px;
+    border: 1px solid var(--border);
+  }
+  .port-label { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: var(--text-secondary); font-weight: 500; }
+
+  .table-wrap {
+    background: var(--bg-card); border-radius: 9px; overflow: hidden;
+    border: 1px solid var(--border);
+  }
   table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-  th { text-align: left; padding: 9px 12px; background: #f8f9fb; color: #666; font-weight: 600; border-bottom: 1px solid #e8ecf0; white-space: nowrap; }
-  td { padding: 7px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+  th {
+    text-align: left; padding: 9px 12px; background: var(--bg-table-head);
+    color: var(--text-secondary); font-weight: 600;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+    font-size: 0.76rem; letter-spacing: -0.1px;
+  }
+  td { padding: 7px 12px; border-bottom: 1px solid var(--border-light); vertical-align: middle; color: var(--text-primary); }
   tbody tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: #f8f9fb; }
-  tbody tr.editing-row { background: #f0f4ff; }
-  .cell-url { color: #888; font-size: 0.76rem; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cell-key { color: #bbb; letter-spacing: 2px; font-size: 0.72rem; }
-  code { font-size: 0.76rem; background: #f0f2f5; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
-  .empty { text-align: center; color: #bbb; padding: 28px; margin: 0; font-size: 0.82rem; }
-  .badge { padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
-  .badge-ok { background: #dcfce7; color: #166534; }
-  .badge-err { background: #fef2f2; color: #991b1b; }
-  .badge-op { background: #dbeafe; color: #1d4ed8; }
-  .badge-method { background: #f0f2f5; color: #555; }
-  .btn-primary { padding: 6px 16px; background: #667eea; color: #fff; border: none; border-radius: 6px; font-size: 0.8rem; cursor: pointer; font-weight: 500; }
-  .btn-primary:hover { background: #5a6fd6; }
-  .btn-secondary { padding: 5px 12px; background: #f0f2f5; color: #555; border: none; border-radius: 6px; font-size: 0.78rem; cursor: pointer; }
-  .btn-secondary:hover { background: #e4e7ec; }
-  .btn-sm { padding: 3px 9px; border: 1px solid #ddd; background: #fff; border-radius: 4px; font-size: 0.72rem; cursor: pointer; }
-  .btn-sm:hover { background: #f5f5f5; }
-  .btn-del { color: #ef4444; border-color: #fecaca; }
-  .btn-del:hover { background: #fef2f2; }
-  .btn-save { color: #16a34a; border-color: #bbf7d0; }
-  .btn-save:hover { background: #f0fdf4; }
-  .btn-test { color: #667eea; border-color: #c7d2fe; }
-  .btn-test:hover { background: #eef2ff; }
+  tbody tr:hover { background: var(--bg-table-hover); }
+  tbody tr.editing-row { background: var(--bg-editing-row); }
+
+  .cell-url { color: var(--text-muted); font-size: 0.76rem; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cell-key { color: var(--text-muted); letter-spacing: 2px; font-size: 0.72rem; }
+  code { font-size: 0.76rem; background: var(--code-bg); padding: 2px 5px; border-radius: 3px; font-family: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", "Cascadia Code", Consolas, monospace; color: var(--text-primary); }
+  .empty { text-align: center; color: var(--text-muted); padding: 28px; margin: 0; font-size: 0.82rem; }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Buttons
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .btn-primary { padding: 6px 16px; background: var(--accent); color: #fff; border: none; border-radius: 6px; font-size: 0.8rem; cursor: pointer; font-weight: 500; }
+  .btn-primary:hover { background: var(--accent-hover); }
+
+  .btn-secondary { padding: 5px 12px; background: var(--btn-secondary-bg); color: var(--btn-secondary-color); border: none; border-radius: 6px; font-size: 0.78rem; cursor: pointer; font-weight: 500; }
+  .btn-secondary:hover { background: var(--btn-secondary-hover-bg); }
+
+  .btn-start { padding: 7px 18px; background: var(--accent); color: #fff; border: none; border-radius: 7px; font-size: 0.82rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px; letter-spacing: -0.1px; }
+  .btn-start:hover { background: var(--accent-hover); }
+  .btn-start:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .btn-stop { padding: 7px 14px; background: var(--danger); color: #fff; border: none; border-radius: 7px; font-size: 0.82rem; cursor: pointer; font-weight: 500; }
+  .btn-stop:hover { background: var(--danger-hover); }
+  .btn-stop:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .btn-info { padding: 6px 12px; background: var(--accent-bg); color: #1d4ed8; border: none; border-radius: 6px; font-size: 0.78rem; cursor: pointer; font-weight: 500; }
+  .app[data-theme="dark"] .btn-info { color: var(--accent); }
+  .btn-info:hover { filter: brightness(0.95); }
+
+  .btn-sm { padding: 3px 9px; border: 1px solid var(--btn-sm-border); background: var(--btn-sm-bg); border-radius: 4px; font-size: 0.72rem; cursor: pointer; color: var(--text-primary); }
+  .btn-sm:hover { background: var(--btn-sm-hover-bg); }
+  .btn-del { color: var(--danger); border-color: var(--danger-border); }
+  .btn-del:hover { background: var(--danger-light); }
+  .btn-save { color: var(--success); border-color: rgba(22, 163, 74, 0.3); }
+  .btn-save:hover { background: var(--success-light); }
+  .btn-test { color: var(--accent); border-color: rgba(99, 102, 241, 0.3); min-width: 46px; transition: all 0.2s; }
+  .btn-test:hover { background: var(--accent-light); }
+  .test-ok-btn { color: #16a34a !important; border-color: #bbf7d0 !important; background: #f0fdf4 !important; font-weight: 600; }
+  [data-theme="dark"] .test-ok-btn { background: #052e16 !important; border-color: #166534 !important; color: #4ade80 !important; }
+  .test-warn-btn { color: #b45309 !important; border-color: #fde68a !important; background: #fffbeb !important; font-weight: 600; }
+  [data-theme="dark"] .test-warn-btn { background: #451a03 !important; border-color: #92400e !important; color: #fbbf24 !important; }
+  .test-fail-btn { color: #dc2626 !important; border-color: #fecaca !important; background: #fef2f2 !important; font-weight: 600; }
+  [data-theme="dark"] .test-fail-btn { background: #450a0a !important; border-color: #991b1b !important; color: #f87171 !important; }
+
   .act { white-space: nowrap; display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
-  .test-badge { font-size: 0.7rem; font-weight: 600; padding: 1px 5px; border-radius: 3px; }
-  .test-ok { color: #16a34a; background: #dcfce7; }
-  .test-warn { color: #b45309; background: #fef3c7; }
-  .test-fail { color: #dc2626; background: #fef2f2; }
-  input, select { padding: 5px 9px; border: 1px solid #ddd; border-radius: 5px; font-size: 0.8rem; background: #fafbfc; outline: none; width: 100%; box-sizing: border-box; }
-  input:focus, select:focus { border-color: #667eea; background: #fff; }
+  .cell-key { display: flex; align-items: center; gap: 2px; }
+  .key-mask { color: var(--text-muted); letter-spacing: 2px; font-size: 0.72rem; }
+  .icon-btn { background: none; border: none; cursor: pointer; font-size: 0.82rem; padding: 1px 3px; opacity: 0.5; line-height: 1; }
+  .icon-btn:hover { opacity: 1; }
+
+  .btn-copy { padding: 4px 9px; background: var(--accent); color: #fff; border: none; border-radius: 4px; font-size: 0.7rem; cursor: pointer; white-space: nowrap; }
+  .btn-copy:hover { background: var(--accent-hover); }
+  .btn-copy-sm { padding: 2px 6px; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-input); border-radius: 3px; font-size: 0.66rem; cursor: pointer; }
+  .btn-copy-sm:hover { background: var(--border); }
+
+  .spinner { width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Forms
+     ═══════════════════════════════════════════════════════════════════════════ */
+  input, select {
+    padding: 5px 9px; border: 1px solid var(--border-input); border-radius: 5px;
+    font-size: 0.8rem; background: var(--bg-input); outline: none;
+    width: 100%; box-sizing: border-box; font-family: inherit; color: var(--text-primary);
+  }
+  input:focus, select:focus { border-color: var(--accent); background: var(--bg-input-focus); }
+
   .input-toggle { display: flex; position: relative; }
   .input-toggle input { flex: 1; padding-right: 30px; }
-  .toggle-btn { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 0.9rem; padding: 0; line-height: 1; }
-  .form-row { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-  .form-row label { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: #666; flex: 1; min-width: 160px; }
-  .form-actions { display: flex; gap: 8px; margin-top: 4px; }
-  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
-  .modal { background: #fff; border-radius: 11px; width: 90vw; max-width: 660px; max-height: 82vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
-  .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 18px; border-bottom: 1px solid #e8ecf0; }
-  .modal-head h3 { margin: 0; font-size: 0.95rem; }
-  .modal-head button { background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #888; line-height: 1; }
-  .modal-head button:hover { color: #333; }
+  .toggle-btn {
+    position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 0;
+    line-height: 1; opacity: var(--toggle-btn-opacity);
+  }
+  .toggle-btn:hover { opacity: 1; }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Modals
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .overlay { position: fixed; inset: 0; background: var(--bg-overlay); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal {
+    background: var(--modal-bg); border-radius: 11px; width: 90vw; max-width: 660px;
+    max-height: 82vh; display: flex; flex-direction: column;
+    box-shadow: var(--modal-shadow);
+  }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 18px; border-bottom: 1px solid var(--modal-head-border); }
+  .modal-head h3 { margin: 0; font-size: 0.95rem; color: var(--text-primary); }
+  .modal-head button { background: none; border: none; font-size: 1.1rem; cursor: pointer; color: var(--text-muted); line-height: 1; }
+  .modal-head button:hover { color: var(--text-primary); }
   .modal-body { padding: 18px; overflow-y: auto; flex: 1; }
+
+  .form-row { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .form-row label { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: var(--text-secondary); flex: 1; min-width: 160px; }
+  .form-actions { display: flex; gap: 8px; margin-top: 4px; }
+
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .detail-grid h4 { margin: 0 0 6px; font-size: 0.82rem; color: #666; }
-  .detail-grid pre { background: #f8f9fb; padding: 10px; border-radius: 5px; font-size: 0.7rem; overflow: auto; max-height: 44vh; margin: 0; }
-  .log-list { display: flex; flex-direction: column; gap: 2px; }
-  .log-row { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 5px; font-size: 0.76rem; flex-wrap: wrap; }
-  .log-row:hover { background: rgba(0,0,0,0.04); }
+  .detail-grid h4 { margin: 0 0 6px; font-size: 0.82rem; color: var(--text-secondary); }
+  .detail-grid pre { background: var(--bg-input); padding: 10px; border-radius: 5px; font-size: 0.7rem; overflow: auto; max-height: 44vh; margin: 0; color: var(--text-primary); }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Badges
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .badge { padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+  .badge-ok { background: var(--badge-ok-bg); color: var(--badge-ok-color); }
+  .badge-err { background: var(--badge-err-bg); color: var(--badge-err-color); }
+  .badge-op { background: var(--badge-op-bg); color: var(--badge-op-color); }
+  .badge-method { background: var(--badge-method-bg); color: var(--badge-method-color); }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Test badges (always same colors)
+     ═══════════════════════════════════════════════════════════════════════════ */
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Log Terminal (ALWAYS dark - terminal style)
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .log-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; flex-shrink: 0;
+  }
+  .log-collapse-btn {
+    background: none; border: 1px solid var(--border); border-radius: 5px;
+    padding: 3px 10px; font-size: 0.78rem; cursor: pointer; color: var(--text-primary);
+    font-weight: 500;
+  }
+  .log-collapse-btn:hover { background: var(--bg-input); }
+
+  .log-controls { display: flex; align-items: center; gap: 10px; }
+  .autoscroll-label { display: flex; align-items: center; gap: 4px; font-size: 0.72rem; color: var(--text-muted); cursor: pointer; user-select: none; }
+  .autoscroll-label input { width: auto; accent-color: var(--accent); }
+
+  .log-terminal {
+    flex: 1; overflow-y: auto;
+    font-family: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", "Cascadia Code", Consolas, monospace;
+    font-size: 0.72rem;
+    background: #1e1e2e; color: #cdd6f4;
+    border-radius: 0 0 6px 6px;
+  }
+  .log-line { display: flex; align-items: center; gap: 6px; padding: 2px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); min-height: 22px; white-space: nowrap; }
+  .log-line:hover { background: rgba(255,255,255,0.05); }
   .log-clickable { cursor: pointer; }
-  .log-time { color: #999; font-size: 0.72rem; white-space: nowrap; }
-  .log-path { color: #444; font-family: monospace; font-size: 0.74rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .log-model { color: #667eea; font-size: 0.72rem; font-family: monospace; }
-  .log-lat { color: #888; font-size: 0.7rem; white-space: nowrap; }
+  .log-time { color: #6c7086; font-size: 0.66rem; flex-shrink: 0; width: 56px; text-align: right; }
+  .log-msg { color: #a6adc8; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .log-model { color: #89b4fa; flex-shrink: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+  .log-lat { color: #6c7086; flex-shrink: 0; font-size: 0.66rem; }
+  .log-detail { color: #a6adc8; font-size: 0.66rem; flex-shrink: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+  .log-line .badge { font-size: 0.62rem; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+  .log-line .badge-op { background: rgba(137,180,250,0.15); color: #89b4fa; }
+  .log-line .badge-method { background: rgba(166,173,200,0.1); color: #a6adc8; }
+  .log-line .badge-ok { background: rgba(166,227,161,0.12); color: #a6e3a1; }
+  .log-line .badge-err { background: rgba(243,139,168,0.12); color: #f38ba8; }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Collapse Bar (when logs are hidden)
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .log-collapse-bar {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 6px;
+    cursor: pointer; user-select: none;
+    background: var(--bg-card);
+    transition: background 0.15s;
+    min-height: 80px;
+  }
+  .log-collapse-bar:hover { background: var(--bg-input); }
+  .log-collapse-label {
+    font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);
+    letter-spacing: 1px;
+  }
+  .log-collapse-arrow {
+    font-size: 0.7rem; color: var(--text-muted);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Connection Info
+     ═══════════════════════════════════════════════════════════════════════════ */
   .conn-info { display: flex; flex-direction: column; gap: 10px; }
   .ci-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .ci-label { font-size: 0.72rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; min-width: 130px; }
-  .ci-row code { font-size: 0.78rem; background: #f0f2f5; padding: 5px 9px; border-radius: 4px; flex: 1; }
+  .ci-label { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; min-width: 130px; }
+  .ci-row code { font-size: 0.78rem; background: var(--code-bg); padding: 5px 9px; border-radius: 4px; flex: 1; }
   .ci-pre-row { align-items: flex-start; }
-  .ci-pre { font-size: 0.76rem; background: #f0f2f5; padding: 9px 11px; border-radius: 4px; margin: 0; flex: 1; white-space: pre-wrap; font-family: monospace; }
-  .ci-arrow { color: #667eea; font-weight: bold; }
+  .ci-pre { font-size: 0.76rem; background: var(--code-bg); padding: 9px 11px; border-radius: 4px; margin: 0; flex: 1; white-space: pre-wrap; font-family: "SF Mono", "Fira Code", Consolas, monospace; color: var(--text-primary); }
+  .ci-arrow { color: var(--accent); font-weight: bold; }
   .ci-model-row { font-size: 0.78rem; }
-  .ci-divider { border: none; border-top: 1px solid #e8ecf0; margin: 4px 0; }
-  .ci-section-label { font-size: 0.72rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
-  .btn-copy { padding: 4px 9px; background: #667eea; color: #fff; border: none; border-radius: 4px; font-size: 0.7rem; cursor: pointer; white-space: nowrap; }
-  .btn-copy:hover { background: #5a6fd6; }
-  .btn-copy-sm { padding: 2px 6px; background: #f0f2f5; color: #555; border: 1px solid #ddd; border-radius: 3px; font-size: 0.66rem; cursor: pointer; }
-  .btn-copy-sm:hover { background: #e4e7ec; }
+  .ci-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+  .ci-section-label { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Toast
+     ═══════════════════════════════════════════════════════════════════════════ */
+  .toast {
+    position: fixed; top: 56px; right: 20px;
+    background: var(--bg-toast); color: var(--text-toast);
+    padding: 9px 18px; border-radius: 7px; font-size: 0.82rem;
+    z-index: 999; animation: fadeIn 0.2s;
+  }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; } }
 </style>
