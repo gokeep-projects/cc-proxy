@@ -1,0 +1,31 @@
+[proxy]
+host = "127.0.0.1"
+port = 9528
+log_capacity = 10000
+
+[[providers]]
+id = "deepseek"
+name = "DeepSeek"
+base_url = "https://api.deepseek.com"
+api_key = "sk-2b4eda3723af498fa7e9a148b0af2a21"
+default_model = "deepseek-v4-flash"
+
+[[model_mappings]]
+from = "claude-sonnet-4-20250514"
+to_provider = "deepseek"
+to_model = "deepseek-v4-pro"
+
+[[model_mappings]]
+from = "claude-opus-4-5-20250414"
+to_provider = "deepseek"
+to_model = "deepseek-v4-pro"
+
+[[model_mappings]]
+from = "gpt-4o"
+to_provider = "deepseek"
+to_model = "deepseek-v4-pro"
+
+[[model_mappings]]
+from = "o3"
+to_provider = "deepseek"
+to_model = "deepseek-v4-flash"
