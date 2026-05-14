@@ -11,7 +11,7 @@
   } from "$lib/api";
 
   // State
-  let theme = $state<string>(typeof localStorage !== "undefined" ? (localStorage.getItem("theme") || "dark") : "dark");
+  let theme = $state<string>(typeof localStorage !== "undefined" ? (localStorage.getItem("theme") || "light") : "light");
   let config = $state<Config>({ proxy: { host: "127.0.0.1", port: 8080, log_capacity: 1000, https: false, cert_path: "", key_path: "" }, providers: [], model_mappings: [] });
   let status = $state<ProxyStatus>({ running: false, host: "", port: 0, https: false });
   let logs = $state<RequestLog[]>([]);
@@ -82,13 +82,14 @@
   async function handleStart() {
     const info = await startProxy();
     status = await getProxyStatus();
-    await addOpLog('start_proxy', `Started on ${info.host}:${info.port}`);
+    logsPanelOpen = true;
+    await addOpLog('启动代理', `${status.https ? 'HTTPS' : 'HTTP'} ${info.host}:${info.port} 启动成功`);
   }
 
   async function handleStop() {
     await stopProxy();
     status = await getProxyStatus();
-    await addOpLog('stop_proxy', 'Proxy stopped');
+    await addOpLog('停止代理', '代理服务已停止');
   }
 
   async function handleGenCert() {
@@ -96,7 +97,7 @@
     config.proxy.cert_path = cert.cert_path;
     config.proxy.key_path = cert.key_path;
     await doSave();
-    await addOpLog('gen_cert', cert.cert_path);
+    await addOpLog('生成证书', `证书路径: ${cert.cert_path}`);
   }
 
   function openAddProvider() {
@@ -248,10 +249,13 @@
 
   function formatLog(log) {
     const t = formatTime(log.timestamp);
-    if (log.method === 'OP') return `[${t}] [操作] ${log.path} | ${log.model_in} | ✓`;
-    if (log.status === 0) return `[${t}] [流式] ${log.method} ${log.path} | ${log.model_in} → ${log.model_out} | ${log.provider} | streaming`;
-    const tokens = (log.prompt_tokens != null || log.completion_tokens != null) ? ` | ${log.prompt_tokens ?? 0}/${log.completion_tokens ?? 0}` : '';
-    return `[${t}] [请求] ${log.method} ${log.path} | ${log.model_in} → ${log.model_out} | ${log.provider} | ${log.status} | ${log.latency_ms}ms${tokens}`;
+    if (log.method === 'OP') {
+      const detail = (typeof log.response_body === 'string' && log.response_body) ? log.response_body : (log.model_in || '');
+      return `[${t}] [操作] ${log.path} | ${detail} | ✓`;
+    }
+    if (log.latency_ms === 0 && log.status === 200) return `[${t}] [流式] ${log.method} ${log.path} | ${log.model_in} → ${log.model_out} | ${log.provider} | streaming`;
+    const tokens = (log.prompt_tokens != null || log.completion_tokens != null) ? ` | ${log.prompt_tokens ?? 0}/${log.completion_tokens ?? 0} tokens` : '';
+    return `[${t}] [请求] ${log.method} ${log.path} | ${log.model_in} → ${log.model_out} | ${log.provider} | HTTP ${log.status} | ${log.latency_ms}ms${tokens}`;
   }
 
   function getProviderById(id) { return config.providers.find(p => p.id === id); }
@@ -281,9 +285,12 @@
     <span class="title">CC Proxy</span>
     <div class="hright">
       {#if status.running}
-        <span class="pulse-dot"></span>
-        <span class="run-info">运行中 · 端口 {status.port}</span>
-        <button onclick={() => showConnModal = true}>连接信息</button>
+        <div class="running-badge">
+          <span class="pulse-ring"></span>
+          <span class="pulse-dot"></span>
+          <span class="run-info">运行中 · 端口 {status.port} · {status.https ? 'HTTPS' : 'HTTP'}</span>
+        </div>
+        <button class="btn-conn" onclick={() => showConnModal = true}>连接信息</button>
         <button class="btn-danger" onclick={handleStop}>停止</button>
       {:else}
         <button class="btn-primary" onclick={handleStart}>&#9654; 启动</button>
@@ -626,17 +633,34 @@ api_key: any</pre>
   .models-area { flex: 1; }
   .model-tags { display: flex; flex-wrap: wrap; margin-bottom: 6px; }
   .model-add { display: flex; gap: 6px; }
+  .running-badge {
+    display: flex; align-items: center; gap: 8px;
+    background: linear-gradient(135deg, #065f46, #047857);
+    padding: 4px 14px; border-radius: 20px; position: relative;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+  }
+  .pulse-ring {
+    position: absolute; left: 10px; width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid #34d399; animation: ring 2s infinite;
+  }
+  @keyframes ring {
+    0% { transform: scale(0.8); opacity: 1; }
+    100% { transform: scale(1.8); opacity: 0; }
+  }
   .pulse-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: #22c55e;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #34d399;
+    box-shadow: 0 0 8px #34d399;
     animation: pulse 1.5s infinite;
     display: inline-block;
   }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    50% { opacity: 0.5; }
   }
-  .run-info { font-size: 13px; }
+  .run-info { font-size: 13px; color: #d1fae5; font-weight: 500; }
+  .btn-conn { background: #1e40af; color: #bfdbfe; border-color: #1e40af; border-radius: 4px; }
+  .btn-conn:hover { background: #1d4ed8; }
   .collapse-btn {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     height: 100%; width: 40px; background: transparent; border: none; cursor: pointer;
