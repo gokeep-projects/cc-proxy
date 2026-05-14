@@ -724,7 +724,7 @@
     <div class="panel panel-right" class:collapsed={!logsExpanded}>
       {#if logsExpanded}
         <div class="log-header">
-          <button class="log-collapse-btn" onclick={() => logsExpanded = !logsExpanded}>
+          <button class="log-collapse-btn" onclick={() => (logsExpanded = false)}>
             日志
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <path d="M4 15l8-8 8 8"/>
@@ -777,15 +777,14 @@
           </div>
         {/if}
       {:else}
-        <div class="log-collapse-bar" onclick={() => logsExpanded = !logsExpanded} role="button" tabindex="0"
-          onkeydown={(e: KeyboardEvent) => { if (e.key === "Enter") logsExpanded = !logsExpanded; }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M15 6l-6 6 6 6"/>
-          </svg>
-          <span class="log-collapse-label">日志</span>
-          {#if logs.length > 0}
-            <span class="log-collapse-count">{logs.length}</span>
-          {/if}
+        <div class="log-collapse-bar">
+          <button class="log-expand-btn" onclick={() => (logsExpanded = true)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M15 6l-6 6 6 6"/>
+            </svg>
+            <span>日志</span>
+            {#if logs.length > 0}<span class="log-collapse-count">{logs.length}</span>{/if}
+          </button>
         </div>
       {/if}
     </div>
@@ -1255,24 +1254,24 @@ OPENAI_BASE_URL=http://{status.host}:{status.port}/v1</pre>
   .split-layout { display: flex; flex: 1; overflow: hidden; }
 
   .panel-left {
-    width: 55%; flex-shrink: 0; overflow-y: auto; padding: 20px;
+    flex: 1; overflow-y: auto; padding: 20px; min-width: 0;
     background: var(--bg-panel);
   }
 
   .panel-right {
-    flex: 1; overflow: hidden; display: flex; flex-direction: column;
+    flex: 0 0 46%; overflow: hidden; display: flex; flex-direction: column;
     border-left: 1px solid var(--border);
     background: var(--bg-panel);
   }
   .panel-right.collapsed {
-    flex: 0 0 42px;
+    flex: 0 0 46px; width: 46px;
   }
 
   @media (max-width: 700px) {
     .split-layout { flex-direction: column; }
-    .panel-left { width: 100%; flex-shrink: 0; border-bottom: 1px solid var(--border); }
-    .panel-right.collapsed { flex: 0 0 38px; border-left: none; border-top: 1px solid var(--border); }
-    .panel-right:not(.collapsed) { flex: 0 0 45%; }
+    .panel-left { flex: 1; min-height: 200px; border-bottom: 1px solid var(--border); }
+    .panel-right.collapsed { flex: 0 0 38px; width: auto; border-left: none; border-top: 1px solid var(--border); }
+    .panel-right:not(.collapsed) { flex: 0 0 50%; min-height: 200px; }
   }
 
   /* ═══════════════════════════════════════════════════════════════════════════
@@ -1623,21 +1622,20 @@ OPENAI_BASE_URL=http://{status.host}:{status.port}/v1</pre>
      Collapse Bar (when logs are hidden)
      ═══════════════════════════════════════════════════════════════════════════ */
   .log-collapse-bar {
-    flex: 1; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 6px;
-    cursor: pointer; user-select: none;
+    flex: 1; display: flex; align-items: center; justify-content: center;
     background: var(--bg-card);
-    transition: background 0.15s;
-    min-height: 80px;
+    padding: 6px;
   }
-  .log-collapse-bar:hover { background: var(--bg-input); }
-  .log-collapse-label {
-    font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);
-    letter-spacing: 1px;
+  .log-expand-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    background: none; border: none; cursor: pointer; color: var(--text-secondary);
+    font-size: 0.78rem; font-family: inherit; padding: 8px;
+    border-radius: 6px; transition: background 0.15s;
   }
+  .log-expand-btn:hover { background: var(--bg-input); color: var(--text-primary); }
   .log-collapse-count {
-    font-size: 0.6rem; color: var(--accent); font-weight: 600;
-    background: var(--accent-bg); padding: 1px 6px; border-radius: 8px;
+    font-size: 0.62rem; color: var(--accent); font-weight: 600;
+    background: var(--accent-bg); padding: 1px 7px; border-radius: 8px;
   }
 
   /* ═══════════════════════════════════════════════════════════════════════════
