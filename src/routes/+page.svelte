@@ -139,8 +139,10 @@
   }
 
   async function deleteProvider(id) {
+    if (!confirm('确定删除此提供商？')) return;
     config.providers = config.providers.filter(p => p.id !== id);
     await doSave();
+    await addOpLog('删除提供商', config.providers.find(p => p.id === id)?.name || id);
   }
 
   async function testProvider(id) {
@@ -192,8 +194,11 @@
   }
 
   async function deleteMapping(idx) {
+    if (!confirm('确定删除此映射？')) return;
+    const m = config.model_mappings[idx];
     config.model_mappings = config.model_mappings.filter((_, i) => i !== idx);
     await doSave();
+    await addOpLog('删除映射', m.from);
   }
 
   async function testMappingBtn(idx) {
@@ -311,9 +316,7 @@
         <div class="form-row">
           <label>HTTPS</label>
           <input type="checkbox" bind:checked={config.proxy.https} onchange={doSave} />
-          {#if config.proxy.https}
-            <button onclick={handleGenCert}>生成证书</button>
-          {/if}
+          <span class="hint">启用后跳过证书校验，默认HTTP</span>
         </div>
       </section>
       <section>
@@ -397,11 +400,11 @@
         </button>
       {:else}
         <div class="log-header">
-          <span>日志</span>
+          <span class="log-title">📋 日志</span>
           <div>
-            <label><input type="checkbox" bind:checked={autoScroll} /> 自动滚动</label>
+            <label class="auto-label"><input type="checkbox" bind:checked={autoScroll} /> 自动滚动</label>
             <button onclick={handleClearLogs}>清空</button>
-            <button onclick={() => logsPanelOpen = false}>▶</button>
+            <button onclick={() => logsPanelOpen = false}>收起 ▶</button>
           </div>
         </div>
         <div class="log-body" bind:this={logContainer}>
@@ -547,26 +550,33 @@ api_key: any</pre>
     display: flex;
     flex-direction: column;
     height: 100vh;
-    font-family: system-ui, sans-serif;
-    font-size: 14px;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
   }
   .app[data-theme="dark"] {
     --bg: #0f172a;
     --card: #1e293b;
     --text: #e2e8f0;
+    --text-dim: #94a3b8;
     --border: #334155;
     --btn: #334155;
     --btn-hover: #475569;
     --input-bg: #0f172a;
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
   }
   .app[data-theme="light"] {
-    --bg: #f8fafc;
+    --bg: #f1f5f9;
     --card: #fff;
     --text: #1e293b;
+    --text-dim: #64748b;
     --border: #e2e8f0;
-    --btn: #e2e8f0;
-    --btn-hover: #cbd5e1;
+    --btn: #f1f5f9;
+    --btn-hover: #e2e8f0;
     --input-bg: #fff;
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
   }
   .app { background: var(--bg); color: var(--text); }
   header {
@@ -578,7 +588,7 @@ api_key: any</pre>
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
-  .title { font-size: 18px; font-weight: 700; }
+  .title { font-size: 16px; font-weight: 700; background: linear-gradient(135deg, #6366f1, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
   .hright { display: flex; align-items: center; gap: 8px; }
   .main { display: flex; flex: 1; overflow: hidden; }
   .panel { overflow-y: auto; padding: 12px; }
@@ -586,50 +596,57 @@ api_key: any</pre>
   .right-panel { flex-shrink: 0; display: flex; flex-direction: column; background: #0d1117; color: #c9d1d9; transition: width 0.2s; }
   .splitter { width: 4px; background: var(--border); cursor: col-resize; flex-shrink: 0; }
   .splitter:hover { background: #3b82f6; }
-  section { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-  h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
-  h4 { margin: 10px 0 6px; font-size: 13px; }
+  section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; letter-spacing: -0.2px; }
+  h4 { margin: 10px 0 6px; font-size: 12px; color: var(--text-dim); }
   .sec-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .sec-header h3 { margin: 0; }
   .sec-header div { display: flex; gap: 6px; }
   .form-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-  .form-row label { min-width: 80px; font-size: 13px; color: var(--text); opacity: 0.8; }
+  .form-row label { min-width: 70px; font-size: 12px; color: var(--text-dim); font-weight: 500; }
+  .hint { font-size: 11px; color: var(--text-dim); }
   input[type="text"], input[type="number"], input[type="password"], select, textarea {
     background: var(--input-bg);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-size: 13px;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
     flex: 1;
+    transition: border-color 0.15s;
   }
-  input[type="checkbox"] { width: auto; flex: none; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none; }
+  input[type="checkbox"] { width: auto; flex: none; accent-color: var(--accent); }
   textarea { width: 100%; box-sizing: border-box; resize: vertical; }
   button {
     background: var(--btn);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 4px 10px;
+    border-radius: 6px;
+    padding: 5px 12px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     white-space: nowrap;
+    font-weight: 500;
+    transition: all 0.15s;
   }
   button:hover { background: var(--btn-hover); }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-  .btn-primary:hover { background: #1d4ed8; }
-  .btn-danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { background: #dc2626; color: #fff; border-color: #dc2626; font-size: 11px; padding: 3px 8px; }
   .btn-danger:hover { background: #b91c1c; }
-  .btn-icon { background: transparent; border: none; padding: 2px 6px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
-  th { font-weight: 600; opacity: 0.7; }
-  .url-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .key-cell { display: flex; align-items: center; gap: 4px; }
+  .btn-icon { background: transparent; border: none; padding: 2px 6px; cursor: pointer; opacity: 0.7; }
+  .btn-icon:hover { opacity: 1; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+  th { font-weight: 600; color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .url-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-size: 11px; }
+  .key-cell { display: flex; align-items: center; gap: 4px; font-family: monospace; font-size: 11px; }
   .ops { display: flex; gap: 4px; white-space: nowrap; }
-  .model-tag { display: inline-block; background: var(--btn); border-radius: 3px; padding: 1px 6px; margin: 2px; font-size: 12px; }
-  .model-tag button { background: none; border: none; padding: 0 2px; cursor: pointer; font-size: 11px; }
+  .model-tag { display: inline-block; background: var(--btn); border-radius: 4px; padding: 2px 8px; margin: 2px; font-size: 11px; border: 1px solid var(--border); }
+  .model-tag button { background: none; border: none; padding: 0 3px; cursor: pointer; font-size: 11px; color: var(--text-dim); }
+  .model-tag button:hover { color: #ef4444; }
   .models-area { flex: 1; }
   .model-tags { display: flex; flex-wrap: wrap; margin-bottom: 6px; }
   .model-add { display: flex; gap: 6px; }
@@ -669,21 +686,26 @@ api_key: any</pre>
   .vert-text { writing-mode: vertical-rl; font-size: 13px; }
   .log-header {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 10px; border-bottom: 1px solid #30363d; flex-shrink: 0;
+    padding: 8px 12px; border-bottom: 1px solid #30363d; flex-shrink: 0;
   }
+  .log-title { font-size: 12px; font-weight: 600; color: #e6edf3; }
   .log-header div { display: flex; align-items: center; gap: 8px; }
-  .log-header button { background: #21262d; color: #c9d1d9; border-color: #30363d; }
-  .log-body { flex: 1; overflow-y: auto; padding: 8px; font-family: monospace; font-size: 12px; }
-  .log-line { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+  .log-header button { background: #21262d; color: #c9d1d9; border-color: #30363d; font-size: 11px; padding: 3px 8px; border-radius: 4px; }
+  .log-header button:hover { background: #30363d; }
+  .auto-label { font-size: 11px; color: #8b949e; display: flex; align-items: center; gap: 3px; cursor: pointer; }
+  .log-body { flex: 1; overflow-y: auto; padding: 8px 12px; font-family: "SF Mono", "Fira Code", Consolas, monospace; font-size: 11px; line-height: 1.6; }
+  .log-line { padding: 1px 0; white-space: pre-wrap; word-break: break-all; color: #8b949e; }
+  .log-line:hover { color: #e6edf3; }
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
     display: flex; align-items: center; justify-content: center; z-index: 100;
   }
   .modal {
-    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-    padding: 20px; min-width: 480px; max-width: 600px; max-height: 80vh; overflow-y: auto;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; min-width: 480px; max-width: 600px; max-height: 80vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
   }
-  .modal h3 { margin: 0 0 16px; }
+  .modal h3 { margin: 0 0 16px; font-size: 15px; }
   .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
   .error { color: #f87171; font-size: 13px; margin: 4px 0; }
   code { font-family: monospace; font-size: 12px; background: var(--btn); padding: 2px 6px; border-radius: 3px; flex: 1; }
