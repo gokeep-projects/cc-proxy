@@ -53,6 +53,13 @@ impl LogStore {
         logs.iter().rev().take(limit).cloned().collect()
     }
 
+    pub fn get_recent_chrono(&self, limit: usize) -> Vec<RequestLog> {
+        let logs = self.logs.lock().unwrap();
+        let total = logs.len();
+        let skip = if total > limit { total - limit } else { 0 };
+        logs.iter().skip(skip).cloned().collect()
+    }
+
     pub fn clear(&self) {
         self.logs.lock().unwrap().clear();
     }

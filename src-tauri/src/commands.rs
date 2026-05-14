@@ -21,7 +21,7 @@ pub fn save_config(state: State<'_, AppState>, config: Config) -> Result<(), Str
 
 #[tauri::command]
 pub fn get_logs(state: State<'_, AppState>, limit: Option<usize>) -> Result<Vec<RequestLog>, String> {
-    Ok(state.log_store.get_recent(limit.unwrap_or(100)))
+    Ok(state.log_store.get_recent_chrono(limit.unwrap_or(200)))
 }
 
 #[tauri::command]
