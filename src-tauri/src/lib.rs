@@ -45,8 +45,11 @@ pub fn run() {
             commands::start_proxy,
             commands::stop_proxy,
             commands::add_op_log,
-            commands::test_provider,
+            commands::test_provider_models,
             commands::test_mapping,
+            commands::fetch_provider_models,
+            commands::generate_self_signed_cert,
+            commands::import_cc_switch_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

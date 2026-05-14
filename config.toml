@@ -2,13 +2,16 @@
 host = "127.0.0.1"
 port = 9528
 log_capacity = 10000
+https = false
+cert_path = ""
+key_path = ""
 
 [[providers]]
 id = "deepseek"
 name = "DeepSeek"
 base_url = "https://api.deepseek.com"
 api_key = "sk-2b4eda3723af498fa7e9a148b0af2a21"
-default_model = "deepseek-v4-flash"
+models = ["deepseek-chat", "deepseek-v4-pro", "deepseek-v4-flash"]
 
 [[model_mappings]]
 from = "claude-sonnet-4-20250514"

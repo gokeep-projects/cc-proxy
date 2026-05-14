@@ -4,6 +4,9 @@ export interface ProxyConfig {
   host: string;
   port: number;
   log_capacity: number;
+  https: boolean;
+  cert_path: string;
+  key_path: string;
 }
 
 export interface Provider {
@@ -11,7 +14,7 @@ export interface Provider {
   name: string;
   base_url: string;
   api_key: string;
-  default_model: string;
+  models: string[];
 }
 
 export interface ModelMapping {
@@ -46,6 +49,32 @@ export interface ProxyStatus {
   running: boolean;
   host: string;
   port: number;
+  https: boolean;
+}
+
+export interface ProxyInfo {
+  host: string;
+  port: number;
+  https: boolean;
+}
+
+export interface TestResult {
+  success: boolean;
+  message: string;
+  latency_ms: number;
+}
+
+export interface ModelTestResult {
+  model: string;
+  success: boolean;
+  latency_ms: number;
+  message: string;
+}
+
+export interface CertInfo {
+  cert_path: string;
+  key_path: string;
+  generated: boolean;
 }
 
 export const PRESET_PROVIDERS: Record<string, { name: string; base_url: string; models: string[] }> = {
@@ -70,18 +99,14 @@ export const PROXY_MODELS = [
 
 export async function getConfig(): Promise<Config> { return invoke("get_config"); }
 export async function saveConfig(config: Config): Promise<void> { return invoke("save_config", { config }); }
-export async function getLogs(limit?: number): Promise<RequestLog[]> { return invoke("get_logs", { limit: limit ?? 100 }); }
+export async function getLogs(limit?: number): Promise<RequestLog[]> { return invoke("get_logs", { limit: limit ?? 200 }); }
 export async function clearLogs(): Promise<void> { return invoke("clear_logs"); }
 export async function getProxyStatus(): Promise<ProxyStatus> { return invoke("get_proxy_status"); }
-export async function startProxy(): Promise<string> { return invoke("start_proxy"); }
+export async function startProxy(): Promise<ProxyInfo> { return invoke("start_proxy"); }
 export async function stopProxy(): Promise<void> { return invoke("stop_proxy"); }
 export async function addOpLog(action: string, detail: string): Promise<void> { return invoke("add_op_log", { action, detail }); }
-
-export interface TestResult {
-  success: boolean;
-  message: string;
-  latency_ms: number;
-}
-
-export async function testProvider(providerId: string): Promise<TestResult> { return invoke("test_provider", { providerId }); }
+export async function testProviderModels(providerId: string): Promise<ModelTestResult[]> { return invoke("test_provider_models", { providerId }); }
 export async function testMapping(mappingIdx: number): Promise<TestResult> { return invoke("test_mapping", { mappingIdx }); }
+export async function fetchProviderModels(providerId: string, apiKey: string): Promise<string[]> { return invoke("fetch_provider_models", { providerId, apiKey }); }
+export async function generateSelfSignedCert(): Promise<CertInfo> { return invoke("generate_self_signed_cert"); }
+export async function importCcSwitchConfig(jsonStr: string): Promise<Config> { return invoke("import_cc_switch_config", { jsonStr }); }

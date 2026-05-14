@@ -18,6 +18,12 @@ pub struct ProxyConfig {
     pub port: u16,
     #[serde(default = "default_log_capacity")]
     pub log_capacity: usize,
+    #[serde(default)]
+    pub https: bool,
+    #[serde(default)]
+    pub cert_path: String,
+    #[serde(default)]
+    pub key_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,7 +33,7 @@ pub struct Provider {
     pub base_url: String,
     pub api_key: String,
     #[serde(default)]
-    pub default_model: String,
+    pub models: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,7 +47,7 @@ fn default_host() -> String {
     "127.0.0.1".to_string()
 }
 fn default_port() -> u16 {
-    8080
+    9528
 }
 fn default_log_capacity() -> usize {
     10000
@@ -54,6 +60,9 @@ impl Default for Config {
                 host: default_host(),
                 port: default_port(),
                 log_capacity: default_log_capacity(),
+                https: false,
+                cert_path: String::new(),
+                key_path: String::new(),
             },
             providers: vec![],
             model_mappings: vec![],

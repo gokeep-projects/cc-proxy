@@ -110,6 +110,31 @@ pub async fn proxy_handler(
             }
         });
 
+        // Log the streaming request
+        let log_state = state.clone();
+        let log_model_in = model_in.clone();
+        let log_model_out = model_out.clone();
+        let log_provider = provider.id.clone();
+        let log_path = path.clone();
+        let log_body = body_value.clone();
+        tokio::spawn(async move {
+            log_state.log_store.push(RequestLog {
+                id: LogStore::new_id(),
+                timestamp: chrono::Utc::now(),
+                method: "POST".to_string(),
+                path: log_path,
+                model_in: log_model_in,
+                model_out: log_model_out,
+                provider: log_provider,
+                status: 200,
+                latency_ms: 0,
+                prompt_tokens: None,
+                completion_tokens: None,
+                request_body: log_body,
+                response_body: json!({"stream": true}),
+            });
+        });
+
         Response::builder()
             .status(status)
             .header("Content-Type", "text/event-stream")
@@ -188,8 +213,10 @@ fn resolve_provider(config: &Config, model: &str) -> Option<(Provider, String)> 
             return Some((provider.clone(), mapping.to_model.clone()));
         }
     }
+    // Fallback: use first provider's first model
     if let Some(provider) = config.providers.first() {
-        return Some((provider.clone(), provider.default_model.clone()));
+        let model = provider.models.first().cloned().unwrap_or_else(|| "default".to_string());
+        return Some((provider.clone(), model));
     }
     None
 }
