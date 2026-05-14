@@ -316,7 +316,6 @@
         <div class="form-row">
           <label>HTTPS</label>
           <input type="checkbox" bind:checked={config.proxy.https} onchange={doSave} />
-          <span class="hint">启用后跳过证书校验，默认HTTP</span>
         </div>
       </section>
       <section>
