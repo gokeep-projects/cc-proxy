@@ -231,13 +231,15 @@
     <span class="text-base font-bold bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent">CC Proxy</span>
     <div class="flex items-center gap-2">
       {#if status.running}
-        <div class="flex items-center gap-2 bg-gradient-to-r from-emerald-900 to-emerald-700 px-3 py-1 rounded-full relative shadow-[0_0_12px_rgba(16,185,129,0.4)]">
-          <span class="absolute left-2 w-4 h-4 rounded-full border-2 border-emerald-400 animate-ping"></span>
-          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse inline-block ml-3"></span>
+        <div class="flex items-center gap-2 bg-gradient-to-r from-emerald-900 to-emerald-700 px-4 py-1.5 rounded-full shadow-[0_0_12px_rgba(16,185,129,0.4)]">
+          <span class="relative flex h-3 w-3">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
+          </span>
           <span class="text-emerald-100 text-xs font-medium">运行中 · 端口 {status.port}</span>
         </div>
-        <button class="px-3 py-1 text-xs rounded bg-blue-800 text-blue-200 border border-blue-700 hover:bg-blue-700 cursor-pointer" onclick={() => showConnModal = true}>连接信息</button>
-        <button class="px-3 py-1 text-xs rounded bg-red-600 text-white border border-red-600 hover:bg-red-700 cursor-pointer" onclick={handleStop}>停止</button>
+        <button class="px-3 py-1.5 text-xs rounded bg-blue-800 text-blue-200 border border-blue-700 hover:bg-blue-700 cursor-pointer" onclick={() => showConnModal = true}>连接信息</button>
+        <button class="px-3 py-1.5 text-xs rounded bg-red-600 text-white border border-red-600 hover:bg-red-700 cursor-pointer" onclick={handleStop}>停止</button>
       {:else}
         <button class="px-3 py-1 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer" onclick={handleStart}>▶ 启动</button>
       {/if}
@@ -354,25 +356,22 @@
     </div>
 
     <!-- Splitter -->
-    <div class="w-1 flex-shrink-0 cursor-col-resize hover:bg-blue-500 transition-colors" class:bg-slate-200={!dark} class:bg-slate-700={dark} onmousedown={startDrag}></div>
+    {#if logsOpen}
+      <div class="w-1 flex-shrink-0 cursor-col-resize hover:bg-indigo-500 transition-colors" class:bg-slate-200={!dark} class:bg-slate-700={dark} onmousedown={startDrag}></div>
+    {/if}
 
     <!-- Log Panel -->
-    <div class="flex-shrink-0 flex flex-col bg-gray-900 text-gray-300 transition-all overflow-hidden" style="width:{logsOpen ? 'calc(' + (100 - leftPct) + '% - 4px)' : '40px'}">
-      {#if !logsOpen}
-        <button class="flex flex-col items-center justify-center h-full w-10 bg-transparent border-none cursor-pointer text-gray-400 gap-2 hover:text-gray-200" onclick={() => logsOpen = true}>
-          <span style="writing-mode:vertical-rl" class="text-xs">日志</span>
-          <span class="text-xs">◀</span>
-        </button>
-      {:else}
-        <div class="flex justify-between items-center px-3 py-2 border-b border-gray-700 flex-shrink-0">
-          <span class="text-xs font-semibold text-gray-200">日志 <span class="ml-1 px-1.5 py-0.5 rounded-full bg-gray-700 text-gray-400 text-[10px]">{logs.length}</span></span>
+    {#if logsOpen}
+      <div class="flex flex-col bg-gray-900 text-gray-300 overflow-hidden" style="width:calc({100 - leftPct}% - 4px)">
+        <div class="flex justify-between items-center px-3 py-2 border-b border-gray-700/50 flex-shrink-0 bg-gray-800/50">
+          <span class="text-xs font-semibold text-gray-200">📋 日志 <span class="ml-1 px-1.5 py-0.5 rounded-full bg-indigo-900/50 text-indigo-300 text-[10px]">{logs.length}</span></span>
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1 text-[11px] text-gray-400 cursor-pointer">
               <input type="checkbox" bind:checked={autoScroll} class="accent-indigo-500" />
-              自动滚动
+              自动
             </label>
             <button class="px-2 py-0.5 text-[11px] rounded bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600 cursor-pointer" onclick={handleClearLogs}>清空</button>
-            <button class="px-2 py-0.5 text-[11px] rounded bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600 cursor-pointer" onclick={() => logsOpen = false}>收起 ▶</button>
+            <button class="px-2 py-0.5 text-[11px] rounded bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600 cursor-pointer" onclick={() => logsOpen = false}>✕</button>
           </div>
         </div>
         <div class="flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed" bind:this={logContainer}>
@@ -381,13 +380,21 @@
             <div class="py-px whitespace-pre-wrap break-all hover:text-gray-100 {l.cls}">{l.text}</div>
           {/each}
         </div>
-      {/if}
-    </div>
+      </div>
+    {:else}
+      <button class="w-10 flex-shrink-0 flex flex-col items-center justify-center bg-gray-900 border-l border-gray-700 cursor-pointer text-gray-500 gap-1 hover:text-gray-200 hover:bg-gray-800 transition-colors" onclick={() => logsOpen = true}>
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        <span style="writing-mode:vertical-rl" class="text-[10px] tracking-wide">日志</span>
+        {#if logs.length > 0}
+          <span class="px-1 py-0.5 rounded bg-indigo-900/50 text-indigo-300 text-[9px]">{logs.length}</span>
+        {/if}
+      </button>
+    {/if}
   </div>
 
   <!-- Provider Modal -->
   {#if showProviderModal}
-    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onclick={() => showProviderModal = false}>
+    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div class="rounded-2xl shadow-2xl p-6 w-[560px] max-h-[80vh] overflow-y-auto" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark} onclick={(e) => e.stopPropagation()}>
         <h3 class="text-sm font-semibold mb-4">{editingProvider ? "编辑提供商" : "添加提供商"}</h3>
         <div class="space-y-3">
@@ -443,8 +450,8 @@
 
   <!-- Mapping Modal -->
   {#if showMappingModal}
-    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onclick={() => showMappingModal = false}>
-      <div class="rounded-2xl shadow-2xl p-6 w-[480px]" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark} onclick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div class="rounded-2xl shadow-2xl p-6 w-[480px]" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
         <h3 class="text-sm font-semibold mb-4">{editingMappingIdx !== null ? "编辑映射" : "添加映射"}</h3>
         <div class="space-y-3">
           <div class="flex items-center gap-2">
