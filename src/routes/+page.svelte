@@ -172,18 +172,33 @@
     catch(e) { importError = String(e); }
   }
 
+  let simApiType = $state<"chat" | "responses">("chat");
+
   async function sendSimRequest() {
     simLoading = true; simResponse = "";
     try {
       const proto = config.proxy.https ? "https" : "http";
-      const url = proto + "://127.0.0.1:" + config.proxy.port + "/v1/chat/completions";
+      const base = proto + "://127.0.0.1:" + config.proxy.port;
+      let url: string;
+      let body: any;
+
+      if (simApiType === "responses") {
+        url = base + "/v1/responses";
+        body = { model: simModel, input: simMessage, stream: false };
+      } else {
+        url = base + "/v1/chat/completions";
+        body = { model: simModel, messages: [{ role: "user", content: simMessage }], stream: false };
+      }
+
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer any" },
-        body: JSON.stringify({ model: simModel, messages: [{ role: "user", content: simMessage }] })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
       });
       simResponse = JSON.stringify(await res.json(), null, 2);
-    } catch(e) { simResponse = String(e); }
+    } catch(e: any) {
+      simResponse = "请求失败: " + e.message + "\n\n提示: 请确保代理已启动，且端口正确。如果使用HTTPS，浏览器可能阻止自签名证书请求。";
+    }
     simLoading = false;
   }
 
@@ -231,14 +246,13 @@
     <span class="text-base font-bold bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent">CC Proxy</span>
     <div class="flex items-center gap-2">
       {#if status.running}
-        <div class="flex items-center gap-2 bg-gradient-to-r from-emerald-900 to-emerald-700 px-4 py-1.5 rounded-full shadow-[0_0_12px_rgba(16,185,129,0.4)]">
+        <button class="flex items-center gap-2 bg-gradient-to-r from-emerald-900 to-emerald-700 px-4 py-1.5 rounded-full shadow-[0_0_12px_rgba(16,185,129,0.4)] cursor-pointer border-none hover:shadow-[0_0_20px_rgba(16,185,129,0.6)] transition-all" onclick={() => showConnModal = true}>
           <span class="relative flex h-3 w-3">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
           </span>
           <span class="text-emerald-100 text-xs font-medium">运行中 · 端口 {status.port}</span>
-        </div>
-        <button class="px-3 py-1.5 text-xs rounded bg-blue-800 text-blue-200 border border-blue-700 hover:bg-blue-700 cursor-pointer" onclick={() => showConnModal = true}>连接信息</button>
+        </button>
         <button class="px-3 py-1.5 text-xs rounded bg-red-600 text-white border border-red-600 hover:bg-red-700 cursor-pointer" onclick={handleStop}>停止</button>
       {:else}
         <button class="px-3 py-1 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer" onclick={handleStart}>▶ 启动</button>
@@ -266,7 +280,6 @@
         <div class="flex justify-between items-center mb-3">
           <h3 class="text-xs font-semibold uppercase tracking-wide" class:text-slate-500={!dark} class:text-slate-400={dark}>提供商</h3>
           <div class="flex gap-1.5">
-            <button class="px-2 py-1 text-xs rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => showImportModal = true}>导入</button>
             <button class="px-2 py-1 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer" onclick={openAddProvider}>添加</button>
           </div>
         </div>
@@ -362,31 +375,31 @@
 
     <!-- Log Panel -->
     {#if logsOpen}
-      <div class="flex flex-col bg-gray-900 text-gray-300 overflow-hidden" style="width:calc({100 - leftPct}% - 4px)">
-        <div class="flex justify-between items-center px-3 py-2 border-b border-gray-700/50 flex-shrink-0 bg-gray-800/50">
-          <span class="text-xs font-semibold text-gray-200">📋 日志 <span class="ml-1 px-1.5 py-0.5 rounded-full bg-indigo-900/50 text-indigo-300 text-[10px]">{logs.length}</span></span>
+      <div class="flex flex-col overflow-hidden" class:bg-gray-900={dark} class:text-gray-300={dark} class:bg-slate-50={!dark} class:text-slate-700={!dark} style="width:calc({100 - leftPct}% - 4px)">
+        <div class="flex justify-between items-center px-3 py-2 border-b flex-shrink-0" class:border-gray-700={dark} class:bg-gray-800={dark} class:border-slate-200={!dark} class:bg-slate-100={!dark}>
+          <span class="text-xs font-semibold" class:text-gray-200={dark} class:text-slate-600={!dark}>📋 日志 <span class="ml-1 px-1.5 py-0.5 rounded-full text-[10px]" class:bg-indigo-900={dark} class:text-indigo-300={dark} class:bg-indigo-100={!dark} class:text-indigo-600={!dark}>{logs.length}</span></span>
           <div class="flex items-center gap-2">
-            <label class="flex items-center gap-1 text-[11px] text-gray-400 cursor-pointer">
+            <label class="flex items-center gap-1 text-[11px] cursor-pointer" class:text-gray-400={dark} class:text-slate-500={!dark}>
               <input type="checkbox" bind:checked={autoScroll} class="accent-indigo-500" />
               自动
             </label>
-            <button class="px-2 py-0.5 text-[11px] rounded bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600 cursor-pointer" onclick={handleClearLogs}>清空</button>
-            <button class="px-2 py-0.5 text-[11px] rounded bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600 cursor-pointer" onclick={() => logsOpen = false}>✕</button>
+            <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-gray-700={dark} class:text-gray-300={dark} class:border-gray-600={dark} class:bg-slate-200={!dark} class:text-slate-600={!dark} class:border-slate-300={!dark} onclick={handleClearLogs}>清空</button>
+            <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-gray-700={dark} class:text-gray-300={dark} class:border-gray-600={dark} class:bg-slate-200={!dark} class:text-slate-600={!dark} class:border-slate-300={!dark} onclick={() => logsOpen = false}>✕</button>
           </div>
         </div>
         <div class="flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed" bind:this={logContainer}>
           {#each logs as log (log.id)}
             {@const l = fmtLog(log)}
-            <div class="py-px whitespace-pre-wrap break-all hover:text-gray-100 {l.cls}">{l.text}</div>
+            <div class="py-px whitespace-pre-wrap break-all {l.cls}">{l.text}</div>
           {/each}
         </div>
       </div>
     {:else}
-      <button class="w-10 flex-shrink-0 flex flex-col items-center justify-center bg-gray-900 border-l border-gray-700 cursor-pointer text-gray-500 gap-1 hover:text-gray-200 hover:bg-gray-800 transition-colors" onclick={() => logsOpen = true}>
+      <button class="w-10 flex-shrink-0 flex flex-col items-center justify-center border-l cursor-pointer gap-1 transition-colors" class:bg-gray-900={dark} class:border-gray-700={dark} class:text-gray-500={dark} class:hover:text-gray-200={dark} class:bg-slate-100={!dark} class:border-slate-200={!dark} class:text-slate-400={!dark} onclick={() => logsOpen = true}>
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
         <span style="writing-mode:vertical-rl" class="text-[10px] tracking-wide">日志</span>
         {#if logs.length > 0}
-          <span class="px-1 py-0.5 rounded bg-indigo-900/50 text-indigo-300 text-[9px]">{logs.length}</span>
+          <span class="px-1 py-0.5 rounded text-[9px]" class:bg-indigo-900={dark} class:text-indigo-300={dark} class:bg-indigo-100={!dark} class:text-indigo-600={!dark}>{logs.length}</span>
         {/if}
       </button>
     {/if}
@@ -526,28 +539,33 @@
 
   <!-- Simulate Request Modal -->
   {#if showSimModal}
-    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onclick={() => showSimModal = false}>
-      <div class="rounded-2xl shadow-2xl p-6 w-[700px]" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark} onclick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div class="rounded-2xl shadow-2xl p-6 w-[700px] max-h-[80vh] overflow-y-auto" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
         <h3 class="text-sm font-semibold mb-4">模拟请求</h3>
         <div class="flex items-center gap-2 mb-3 p-2 rounded border" class:bg-slate-50={!dark} class:bg-slate-900={dark} class:border-slate-200={!dark} class:border-slate-700={dark}>
           <span class="text-xs font-mono px-2 py-1 rounded bg-indigo-600 text-white">POST</span>
-          <span class="flex-1 text-xs font-mono" class:text-slate-500={!dark} class:text-slate-400={dark}>{(config.proxy.https ? "https" : "http") + "://127.0.0.1:" + config.proxy.port + "/v1/chat/completions"}</span>
+          <span class="flex-1 text-xs font-mono" class:text-slate-500={!dark} class:text-slate-400={dark}>{connBase()}{simApiType === "responses" ? "/v1/responses" : "/v1/chat/completions"}</span>
         </div>
         <div class="flex items-center gap-2 mb-3">
-          <label class="w-16 text-xs shrink-0" class:text-slate-500={!dark} class:text-slate-400={dark}>模型</label>
+          <label class="w-16 text-xs shrink-0" class:text-slate-500={!dark} class:text-slate-400={dark}>接口</label>
+          <select bind:value={simApiType} class="rounded border px-2 py-1.5 text-xs" class:bg-white={!dark} class:bg-slate-900={dark} class:border-slate-200={!dark} class:border-slate-600={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
+            <option value="chat">Chat Completions</option>
+            <option value="responses">Responses API</option>
+          </select>
+          <label class="w-16 text-xs shrink-0 ml-2" class:text-slate-500={!dark} class:text-slate-400={dark}>模型</label>
           <select bind:value={simModel} class="flex-1 rounded border px-2 py-1.5 text-xs" class:bg-white={!dark} class:bg-slate-900={dark} class:border-slate-200={!dark} class:border-slate-600={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
             <option value="">选择模型</option>
             {#each config.model_mappings as m}<option value={m.from}>{m.from}</option>{/each}
           </select>
         </div>
         <textarea bind:value={simMessage} rows={4} placeholder="消息内容..." class="w-full rounded border px-2 py-1.5 text-xs mb-3 resize-y" class:bg-white={!dark} class:bg-slate-900={dark} class:border-slate-200={!dark} class:border-slate-600={dark} class:text-slate-800={!dark} class:text-slate-200={dark}></textarea>
-        <button class="px-3 py-1.5 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer mb-3" onclick={sendSimRequest} disabled={simLoading}>{simLoading ? "发送中..." : "发送"}</button>
+        <div class="flex gap-2 mb-3">
+          <button class="px-4 py-1.5 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer" onclick={sendSimRequest} disabled={simLoading}>{simLoading ? "发送中..." : "▶ 发送"}</button>
+          <button class="px-3 py-1.5 text-xs rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => showSimModal = false}>关闭</button>
+        </div>
         {#if simResponse}
           <pre class="bg-gray-900 text-green-400 text-[11px] font-mono p-3 rounded overflow-x-auto max-h-60 overflow-y-auto">{simResponse}</pre>
         {/if}
-        <div class="flex justify-end mt-3">
-          <button class="px-3 py-1.5 text-xs rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => showSimModal = false}>关闭</button>
-        </div>
       </div>
     </div>
   {/if}
