@@ -302,25 +302,28 @@
   function confirmNo() { confirmResolve?.(false); confirmMsg = ""; }
 
   // ── Code generation for simulate ──
-  let simCodeLang = $state<"curl" | "python" | "go" | "rust">("curl");
+  let simCodeLang = $state<"raw" | "curl" | "python" | "go" | "rust">("curl");
   function genCode(): string {
     const base = "http://127.0.0.1:" + config.proxy.port;
     const endpoint = simApiType === "responses" ? "/v1/responses" : "/v1/chat/completions";
     const url = base + endpoint;
     const body = simApiType === "responses"
-      ? JSON.stringify({ model: simModel, input: simMessage, stream: false })
-      : JSON.stringify({ model: simModel, messages: [{ role: "user", content: simMessage }], stream: false });
+      ? JSON.stringify({ model: simModel, input: simMessage, stream: false }, null, 2)
+      : JSON.stringify({ model: simModel, messages: [{ role: "user", content: simMessage }], stream: false }, null, 2);
 
+    if (simCodeLang === "raw") {
+      return `POST ${endpoint} HTTP/1.1\nHost: 127.0.0.1:${config.proxy.port}\nContent-Type: application/json\n\n${body}`;
+    }
     if (simCodeLang === "curl") {
-      return `curl -X POST '${url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '${body}'`;
+      return `curl -X POST '${url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '${JSON.stringify(JSON.parse(body))}'`;
     }
     if (simCodeLang === "python") {
       return `import requests\n\nresp = requests.post("${url}",\n    json=${body})\nprint(resp.json())`;
     }
     if (simCodeLang === "go") {
-      return `resp, _ := http.Post("${url}", "application/json", strings.NewReader(\`${body}\`))\ndefer resp.Body.Close()\nbody, _ := io.ReadAll(resp.Body)`;
+      return `body := \`${body}\`\nresp, _ := http.Post("${url}", "application/json", strings.NewReader(body))\ndefer resp.Body.Close()\ndata, _ := io.ReadAll(resp.Body)\nfmt.Println(string(data))`;
     }
-    return `let resp = reqwest::Client::new()\n    .post("${url}")\n    .json(&serde_json::json!(${body}))\n    .send().await?;`;
+    return `let resp = reqwest::Client::new()\n    .post("${url}")\n    .header("Content-Type", "application/json")\n    .body(r#"${JSON.stringify(JSON.parse(body))}"#)\n    .send().await?;\nprintln!("{}", resp.text().await?);`;
   }
 
   // ── Log export ──
@@ -391,9 +394,9 @@
               <tr class="border-t" class:border-slate-100={!dark} class:border-slate-700={dark}>
                 <td class="py-2 px-2">{p.name}</td>
                 <td class="py-2 px-2 max-w-[160px] truncate" class:text-slate-400={!dark} class:text-slate-500={dark}>{p.base_url}</td>
-                <td class="py-2 px-2 font-mono">
-                  <span>{showApiKey[p.id] ? p.api_key : "••••••••"}</span>
-                  <button class="ml-1 opacity-60 hover:opacity-100 cursor-pointer bg-transparent border-none" onclick={() => showApiKey = { ...showApiKey, [p.id]: !showApiKey[p.id] }}>👁</button>
+                <td class="py-2 px-2 font-mono text-[11px] w-32">
+                  <span class="inline-block w-20 overflow-hidden">{showApiKey[p.id] ? p.api_key : "••••••••••••"}</span>
+                  <button class="ml-1 opacity-60 hover:opacity-100 cursor-pointer bg-transparent border-none text-xs" onclick={() => showApiKey = { ...showApiKey, [p.id]: !showApiKey[p.id] }}>{showApiKey[p.id] ? "🔒" : "👁"}</button>
                 </td>
                 <td class="py-2 px-2">
                   {#if providerTestResults[p.id]}
@@ -424,7 +427,6 @@
         <div class="flex justify-between items-center mb-3">
           <h3 class="text-xs font-semibold uppercase tracking-wide" class:text-slate-500={!dark} class:text-slate-400={dark}>模型映射</h3>
           <div class="flex gap-1.5">
-            <button class="px-2 py-1 text-xs rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => showSimModal = true}>模拟请求</button>
             <button class="px-2 py-1 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer" onclick={openAddMapping}>添加</button>
           </div>
         </div>
@@ -432,6 +434,7 @@
           <thead>
             <tr class:text-slate-400={!dark} class:text-slate-500={dark}>
               <th class="text-left py-1.5 px-2 font-semibold">代理模型名</th>
+              <th class="py-1.5 px-1 w-6"></th>
               <th class="text-left py-1.5 px-2 font-semibold">目标提供商</th>
               <th class="text-left py-1.5 px-2 font-semibold">原始模型</th>
               <th class="text-left py-1.5 px-2 font-semibold">操作</th>
@@ -440,16 +443,18 @@
           <tbody>
             {#each config.model_mappings as m, i (i)}
               <tr class="border-t" class:border-slate-100={!dark} class:border-slate-700={dark}>
-                <td class="py-2 px-2">{m.from}</td>
+                <td class="py-2 px-2 font-mono text-indigo-500">{m.from}</td>
+                <td class="py-1 px-1 text-center"><span class="text-indigo-400">→</span></td>
                 <td class="py-2 px-2">{getProviderById(m.to_provider)?.name ?? m.to_provider}</td>
-                <td class="py-2 px-2">{m.to_model}</td>
+                <td class="py-2 px-2 font-mono">{m.to_model}</td>
                 <td class="py-2 px-2">
                   <div class="flex gap-1">
                     {#if mappingTestResult[i]}
                       <button class="px-2 py-0.5 text-[11px] rounded border cursor-default" style="color:{mappingTestResult[i].ok ? '#4ade80' : '#f87171'}">{mappingTestResult[i].ok ? "✓ " + mappingTestResult[i].ms + "ms" : "✗ " + mappingTestResult[i].msg}</button>
                     {:else}
-                      <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => testMappingBtn(i)} disabled={testingMapping[i]}>{testingMapping[i] ? "测试中..." : "测试"}</button>
+                      <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => testMappingBtn(i)} disabled={testingMapping[i]}>{testingMapping[i] ? "..." : "测试"}</button>
                     {/if}
+                    <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => { simModel = m.from; simMessage = "Hello!"; showSimModal = true; }}>模拟</button>
                     <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => openEditMapping(i)}>编辑</button>
                     <button class="px-2 py-0.5 text-[11px] rounded bg-red-600 text-white border border-red-600 hover:bg-red-700 cursor-pointer" onclick={() => deleteMapping(i)}>删除</button>
                   </div>
@@ -481,12 +486,15 @@
             <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-gray-700={dark} class:text-gray-300={dark} class:border-gray-600={dark} class:bg-slate-200={!dark} class:text-slate-600={!dark} class:border-slate-300={!dark} onclick={() => logsOpen = false}>✕</button>
           </div>
         </div>
-        <div class="flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed" bind:this={logContainer}>
+        <div class="flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed relative" bind:this={logContainer}>
           {#each logs as log (log.id)}
             {@const l = fmtLog(log)}
             <div class="py-px whitespace-pre-wrap break-all {l.cls}">{l.text}</div>
           {/each}
         </div>
+        {#if !autoScroll}
+          <button class="absolute bottom-3 right-3 w-7 h-7 rounded-full flex items-center justify-center shadow-lg cursor-pointer bg-indigo-600 text-white border-none text-xs" onclick={() => { if (logContainer) logContainer.scrollTop = logContainer.scrollHeight; autoScroll = true; }}>↓</button>
+        {/if}
       </div>
     {:else}
       <button class="w-10 flex-shrink-0 flex flex-col items-center justify-center border-l cursor-pointer gap-1 transition-colors" class:bg-gray-900={dark} class:border-gray-700={dark} class:text-gray-500={dark} class:hover:text-gray-200={dark} class:bg-slate-100={!dark} class:border-slate-200={!dark} class:text-slate-400={!dark} onclick={() => logsOpen = true}>
@@ -634,7 +642,7 @@
   <!-- Simulate Request Modal -->
   {#if showSimModal}
     <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div class="rounded-2xl shadow-2xl p-6 w-[700px] max-h-[80vh] overflow-y-auto" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
+      <div class="rounded-2xl shadow-2xl p-6 w-[800px] max-h-[90vh] overflow-y-auto" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
         <div class="flex justify-between items-center mb-4">
           <h3 class="text-sm font-semibold">模拟请求</h3>
           <button class="text-lg cursor-pointer border-none bg-transparent" class:text-slate-400={!dark} class:text-slate-500={dark} onclick={() => showSimModal = false}>✕</button>
@@ -665,7 +673,7 @@
         <div class="mt-3 border-t pt-3" class:border-slate-200={!dark} class:border-slate-700={dark}>
           <div class="flex items-center gap-2 mb-2">
             <span class="text-xs font-medium" class:text-slate-500={!dark} class:text-slate-400={dark}>生成代码</span>
-            {#each (["curl", "python", "go", "rust"] as const) as lang}
+            {#each (["raw", "curl", "python", "go", "rust"] as const) as lang}
               <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-indigo-600={simCodeLang === lang} class:text-white={simCodeLang === lang} class:border-indigo-600={simCodeLang === lang} class:bg-slate-50={simCodeLang !== lang && !dark} class:bg-slate-700={simCodeLang !== lang && dark} class:border-slate-200={simCodeLang !== lang && !dark} class:border-slate-600={simCodeLang !== lang && dark} onclick={() => simCodeLang = lang}>{lang}</button>
             {/each}
             <button class="px-2 py-0.5 text-[11px] rounded bg-indigo-600 text-white border border-indigo-600 cursor-pointer" onclick={() => copyText(genCode())}>复制</button>

@@ -1,0 +1,10 @@
+services:
+  cc-proxy:
+    build: .
+    ports:
+      - "9528:9528"
+    volumes:
+      - ./config.toml:/etc/cc-proxy/config.toml:ro
+    restart: unless-stopped
+    environment:
+      - CC_PROXY_HEADLESS=1
