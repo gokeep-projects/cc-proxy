@@ -50,6 +50,10 @@
     config = await getConfig();
     status = await getProxyStatus();
     logs = await getLogs();
+    // Apply saved theme
+    dark = config.proxy.theme === "dark";
+    // Start heartbeat if proxy already running
+    if (status.running) startHeartbeat();
     const iv = setInterval(async () => {
       status = await getProxyStatus();
       const nl = await getLogs();
@@ -58,7 +62,7 @@
         if (autoScroll) { await tick(); if (logContainer) logContainer.scrollTop = logContainer.scrollHeight; }
       }
     }, 1000);
-    return () => clearInterval(iv);
+    return () => { clearInterval(iv); stopHeartbeat(); };
   });
 
   $effect(() => { if (typeof localStorage !== "undefined") localStorage.setItem("theme", dark ? "dark" : "light"); });
@@ -69,12 +73,14 @@
     const info = await startProxy();
     status = await getProxyStatus();
     logsOpen = true;
+    startHeartbeat();
     await addOpLog("启动代理", "HTTP " + info.host + ":" + info.port + " 启动成功");
   }
 
   async function handleStop() {
     await stopProxy();
     status = await getProxyStatus();
+    stopHeartbeat();
     await addOpLog("停止代理", "代理服务已停止");
   }
 
@@ -242,6 +248,49 @@
   // ── Settings ──
   let showSettings = $state(false);
 
+  // ── Heartbeat ──
+  let heartbeatStatus = $state<"ok" | "warn" | "unknown">("unknown");
+  let heartbeatFailCount = $state(0);
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function runHeartbeat() {
+    if (!status.running || config.model_mappings.length === 0) return;
+    try {
+      const { heartbeatCheck } = await import("$lib/api");
+      const results = await heartbeatCheck();
+      const allOk = results.every(r => r.ok);
+      if (allOk) {
+        heartbeatFailCount = 0;
+        heartbeatStatus = "ok";
+        await addOpLog("心跳检测", "全部正常 ✓");
+      } else {
+        heartbeatFailCount++;
+        const failed = results.filter(r => !r.ok).map(r => r.mapping_from).join(", ");
+        await addOpLog("心跳检测", `异常(${heartbeatFailCount}次): ${failed}`);
+        if (heartbeatFailCount >= 3) heartbeatStatus = "warn";
+      }
+    } catch { heartbeatFailCount++; if (heartbeatFailCount >= 3) heartbeatStatus = "warn"; }
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatStatus = "ok";
+    heartbeatFailCount = 0;
+    const interval = (config.proxy.heartbeat_interval || 30) * 1000;
+    heartbeatTimer = setInterval(runHeartbeat, interval);
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    heartbeatStatus = "unknown";
+  }
+
+  async function saveSettings() {
+    await doSave();
+    // Restart heartbeat with new interval
+    if (status.running) startHeartbeat();
+  }
+
   // ── Custom confirm dialog ──
   let confirmMsg = $state("");
   let confirmResolve: ((v: boolean) => void) | null = null;
@@ -294,12 +343,12 @@
     <span class="text-base font-bold bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent">CC Proxy</span>
     <div class="flex items-center gap-2">
       {#if status.running}
-        <button class="flex items-center gap-2 bg-gradient-to-r from-emerald-900 to-emerald-700 px-4 py-1.5 rounded-full shadow-[0_0_12px_rgba(16,185,129,0.4)] cursor-pointer border-none hover:shadow-[0_0_20px_rgba(16,185,129,0.6)] transition-all" onclick={() => showConnModal = true}>
+        <button class="flex items-center gap-2 px-4 py-1.5 rounded-full cursor-pointer border-none transition-all" class:bg-gradient-to-r={heartbeatStatus !== "warn"} class:from-emerald-900={heartbeatStatus !== "warn"} class:to-emerald-700={heartbeatStatus !== "warn"} class:shadow-[0_0_12px_rgba(16,185,129,0.4)]={heartbeatStatus !== "warn"} class:bg-yellow-700={heartbeatStatus === "warn"} class:shadow-[0_0_12px_rgba(234,179,8,0.4)]={heartbeatStatus === "warn"} onclick={() => showConnModal = true}>
           <span class="relative flex h-3 w-3">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" class:bg-emerald-400={heartbeatStatus !== "warn"} class:bg-yellow-400={heartbeatStatus === "warn"}></span>
+            <span class="relative inline-flex rounded-full h-3 w-3" class:bg-emerald-400={heartbeatStatus !== "warn"} class:shadow-[0_0_8px_#34d399]={heartbeatStatus !== "warn"} class:bg-yellow-400={heartbeatStatus === "warn"} class:shadow-[0_0_8px_#eab308]={heartbeatStatus === "warn"}></span>
           </span>
-          <span class="text-emerald-100 text-xs font-medium">运行中 · 端口 {status.port}</span>
+          <span class="text-xs font-medium" class:text-emerald-100={heartbeatStatus !== "warn"} class:text-yellow-100={heartbeatStatus === "warn"}>{heartbeatStatus === "warn" ? "映射异常" : "运行中"} · 端口 {status.port}</span>
         </button>
         <button class="px-3 py-1.5 text-xs rounded bg-red-600 text-white border border-red-600 hover:bg-red-700 cursor-pointer" onclick={handleStop}>停止</button>
       {:else}
@@ -630,23 +679,50 @@
   <!-- Settings Modal -->
   {#if showSettings}
     <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div class="rounded-2xl shadow-2xl p-6 w-[400px]" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
+      <div class="rounded-2xl shadow-2xl p-6 w-[420px]" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
         <div class="flex justify-between items-center mb-4">
-          <h3 class="text-sm font-semibold">设置</h3>
+          <h3 class="text-sm font-semibold">⚙️ 设置</h3>
           <button class="text-lg cursor-pointer border-none bg-transparent" class:text-slate-400={!dark} class:text-slate-500={dark} onclick={() => showSettings = false}>✕</button>
         </div>
-        <div class="space-y-3">
+        <div class="space-y-4">
+          <!-- Theme -->
           <div class="flex items-center justify-between">
-            <span class="text-xs">主题</span>
-            <button class="px-3 py-1 text-xs rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => dark = !dark}>{dark ? "🌙 暗黑" : "☀️ 明亮"}</button>
+            <span class="text-xs font-medium">主题</span>
+            <div class="flex gap-1">
+              <button class="px-3 py-1 text-xs rounded border cursor-pointer" class:bg-indigo-600={!dark} class:text-white={!dark} class:border-indigo-600={!dark} class:bg-slate-700={dark} class:border-slate-600={dark} onclick={() => { dark = false; config.proxy.theme = "light"; saveSettings(); }}>☀️ 明亮</button>
+              <button class="px-3 py-1 text-xs rounded border cursor-pointer" class:bg-indigo-600={dark} class:text-white={dark} class:border-indigo-600={dark} class:bg-slate-50={!dark} class:border-slate-200={!dark} onclick={() => { dark = true; config.proxy.theme = "dark"; saveSettings(); }}>🌙 暗黑</button>
+            </div>
           </div>
+          <!-- Language -->
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium">语言</span>
+            <select bind:value={config.proxy.language} onchange={saveSettings} class="rounded border px-2 py-1 text-xs" class:bg-white={!dark} class:bg-slate-900={dark} class:border-slate-200={!dark} class:border-slate-600={dark}>
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <!-- Autostart -->
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium">开机自启</span>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" bind:checked={config.proxy.autostart} onchange={saveSettings} class="accent-indigo-500" />
+              <span class="text-xs" class:text-slate-500={!dark} class:text-slate-400={dark}>{config.proxy.autostart ? "已开启" : "已关闭"}</span>
+            </label>
+          </div>
+          <!-- Heartbeat -->
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium">心跳间隔 (秒)</span>
+            <input type="number" bind:value={config.proxy.heartbeat_interval} onchange={saveSettings} min="5" max="300" class="w-20 rounded border px-2 py-1 text-xs" class:bg-white={!dark} class:bg-slate-900={dark} class:border-slate-200={!dark} class:border-slate-600={dark} />
+          </div>
+          <!-- Divider -->
           <div class="border-t pt-3" class:border-slate-200={!dark} class:border-slate-700={dark}>
             <p class="text-xs font-semibold mb-2" class:text-slate-500={!dark} class:text-slate-400={dark}>关于</p>
             <div class="text-xs space-y-1" class:text-slate-600={!dark} class:text-slate-400={dark}>
-              <p>产品: CC Proxy</p>
-              <p>版本: 2.0.0</p>
-              <p>描述: AI 模型代理路由工具</p>
-              <p>协议: Claude/Codex → OpenAI 兼容</p>
+              <p><strong>产品:</strong> CC Proxy</p>
+              <p><strong>版本:</strong> 2.0.0</p>
+              <p><strong>描述:</strong> AI 模型代理路由工具</p>
+              <p><strong>协议:</strong> Claude/Codex → OpenAI 兼容</p>
+              <p><strong>技术栈:</strong> Rust + Tauri + Svelte + Tailwind</p>
             </div>
           </div>
         </div>
