@@ -24,6 +24,14 @@ pub struct ProxyConfig {
     pub cert_path: String,
     #[serde(default)]
     pub key_path: String,
+    #[serde(default = "default_heartbeat")]
+    pub heartbeat_interval: u64,
+    #[serde(default = "default_true")]
+    pub autostart: bool,
+    #[serde(default = "default_lang")]
+    pub language: String,
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +60,18 @@ fn default_port() -> u16 {
 fn default_log_capacity() -> usize {
     10000
 }
+fn default_heartbeat() -> u64 {
+    30
+}
+fn default_true() -> bool {
+    true
+}
+fn default_lang() -> String {
+    "zh".to_string()
+}
+fn default_theme() -> String {
+    "light".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -63,6 +83,10 @@ impl Default for Config {
                 https: false,
                 cert_path: String::new(),
                 key_path: String::new(),
+                heartbeat_interval: default_heartbeat(),
+                autostart: true,
+                language: default_lang(),
+                theme: default_theme(),
             },
             providers: vec![],
             model_mappings: vec![],

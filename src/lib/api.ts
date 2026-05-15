@@ -7,6 +7,10 @@ export interface ProxyConfig {
   https: boolean;
   cert_path: string;
   key_path: string;
+  heartbeat_interval: number;
+  autostart: boolean;
+  language: string;
+  theme: string;
 }
 
 export interface Provider {
@@ -110,3 +114,9 @@ export async function testMapping(mappingIdx: number): Promise<TestResult> { ret
 export async function fetchProviderModels(providerId: string, apiKey: string): Promise<string[]> { return invoke("fetch_provider_models", { providerId, apiKey }); }
 export async function generateSelfSignedCert(): Promise<CertInfo> { return invoke("generate_self_signed_cert"); }
 export async function importCcSwitchConfig(jsonStr: string): Promise<Config> { return invoke("import_cc_switch_config", { jsonStr }); }
+export async function heartbeatCheck(): Promise<HeartbeatResult[]> { return invoke("heartbeat_check"); }
+
+export interface HeartbeatResult {
+  mapping_from: string;
+  ok: boolean;
+}

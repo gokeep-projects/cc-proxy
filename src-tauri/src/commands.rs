@@ -308,7 +308,47 @@ pub async fn test_mapping(state: State<'_, AppState>, mapping_idx: usize) -> Res
     }
 }
 
-// ── fetch models from provider API ────────────────────────────────────────────
+// ── heartbeat check ───────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn heartbeat_check(state: State<'_, AppState>) -> Result<Vec<HeartbeatResult>, String> {
+    let config = state.config.lock().unwrap().clone();
+    let mut results = vec![];
+
+    for mapping in &config.model_mappings {
+        let provider = match config.providers.iter().find(|p| p.id == mapping.to_provider) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        let url = format!("{}/v1/chat/completions", provider.base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": mapping.to_model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1
+        });
+
+        let resp = state.http_client.post(&url)
+            .header("Authorization", format!("Bearer {}", provider.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await;
+
+        let ok = matches!(resp, Ok(ref r) if r.status().as_u16() == 200);
+        results.push(HeartbeatResult { mapping_from: mapping.from.clone(), ok });
+    }
+
+    Ok(results)
+}
+
+#[derive(serde::Serialize)]
+pub struct HeartbeatResult {
+    pub mapping_from: String,
+    pub ok: bool,
+}
+
 
 #[tauri::command]
 pub async fn fetch_provider_models(state: State<'_, AppState>, provider_id: String, api_key: String) -> Result<Vec<String>, String> {

@@ -59,6 +59,7 @@ pub fn run() {
             commands::fetch_provider_models,
             commands::generate_self_signed_cert,
             commands::import_cc_switch_config,
+            commands::heartbeat_check,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
