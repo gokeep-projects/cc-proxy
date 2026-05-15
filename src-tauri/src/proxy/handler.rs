@@ -164,15 +164,22 @@ pub async fn proxy_handler(
         let resp_value: Value = serde_json::from_slice(&resp_bytes).unwrap_or(json!({}));
         let latency = start.elapsed().as_millis() as u64;
 
-        let final_body = if is_responses_api && status == 200 {
-            let request_id = format!("resp_{}", LogStore::new_id());
-            convert::chat_to_responses(&resp_value, &request_id)
+        // Convert Anthropic response to OpenAI format if needed
+        let normalized_resp = if is_anthropic_endpoint && status == 200 {
+            convert_anthropic_response_to_openai(&resp_value)
         } else {
             resp_value.clone()
         };
 
-        let prompt_tokens = resp_value["usage"]["prompt_tokens"].as_u64();
-        let completion_tokens = resp_value["usage"]["completion_tokens"].as_u64();
+        let final_body = if is_responses_api && status == 200 {
+            let request_id = format!("resp_{}", LogStore::new_id());
+            convert::chat_to_responses(&normalized_resp, &request_id)
+        } else {
+            normalized_resp.clone()
+        };
+
+        let prompt_tokens = normalized_resp["usage"]["prompt_tokens"].as_u64();
+        let completion_tokens = normalized_resp["usage"]["completion_tokens"].as_u64();
 
         state.log_store.push(RequestLog {
             id: LogStore::new_id(),
@@ -268,4 +275,60 @@ fn convert_to_anthropic_format(chat_body: &Value) -> Value {
     }
 
     body
+}
+
+fn convert_anthropic_response_to_openai(resp: &Value) -> Value {
+    // Anthropic format: { id, type: "message", role, model, content: [{type: "text", text: "..."}], stop_reason, usage: {input_tokens, output_tokens} }
+    // Convert to OpenAI format: { id, object: "chat.completion", model, choices: [{message: {role, content}, finish_reason}], usage: {prompt_tokens, completion_tokens, total_tokens} }
+
+    let content_blocks = resp["content"].as_array();
+    let mut text_content = String::new();
+
+    if let Some(blocks) = content_blocks {
+        for block in blocks {
+            match block["type"].as_str() {
+                Some("text") => {
+                    if let Some(t) = block["text"].as_str() {
+                        text_content.push_str(t);
+                    }
+                }
+                Some("thinking") => {
+                    // Skip thinking blocks or include as reasoning
+                    if let Some(t) = block["thinking"].as_str() {
+                        text_content.push_str(t);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let stop_reason = resp["stop_reason"].as_str().unwrap_or("stop");
+    let finish_reason = match stop_reason {
+        "end_turn" | "stop" => "stop",
+        "max_tokens" => "length",
+        _ => "stop",
+    };
+
+    let input_tokens = resp["usage"]["input_tokens"].as_u64().unwrap_or(0);
+    let output_tokens = resp["usage"]["output_tokens"].as_u64().unwrap_or(0);
+
+    json!({
+        "id": resp["id"],
+        "object": "chat.completion",
+        "model": resp["model"],
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": text_content
+            },
+            "finish_reason": finish_reason
+        }],
+        "usage": {
+            "prompt_tokens": input_tokens,
+            "completion_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens
+        }
+    })
 }

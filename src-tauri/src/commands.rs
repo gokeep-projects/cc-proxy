@@ -138,6 +138,32 @@ pub fn add_op_log(state: State<'_, AppState>, action: String, detail: String) ->
 
 // ── test ─────────────────────────────────────────────────────────────────────
 
+fn build_test_request(client: &reqwest::Client, provider: &crate::config::Provider, model: &str) -> reqwest::RequestBuilder {
+    let base = provider.base_url.trim_end_matches('/');
+    if base.ends_with("/anthropic") {
+        let url = format!("{}/v1/messages", base);
+        client.post(&url)
+            .header("Content-Type", "application/json")
+            .header("x-api-key", &provider.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&serde_json::json!({
+                "model": model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 5
+            }))
+    } else {
+        let url = format!("{}/v1/chat/completions", base);
+        client.post(&url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", provider.api_key))
+            .json(&serde_json::json!({
+                "model": model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 5
+            }))
+    }
+}
+
 #[derive(serde::Serialize)]
 pub struct TestResult {
     pub success: bool,
@@ -169,18 +195,8 @@ pub async fn test_provider_models(state: State<'_, AppState>, provider_id: Strin
     let client = &state.http_client;
 
     for model in &models {
-        let url = format!("{}/v1/chat/completions", provider.base_url.trim_end_matches('/'));
-        let body = serde_json::json!({
-            "model": model,
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 5
-        });
-
         let start = std::time::Instant::now();
-        let result = client.post(&url)
-            .header("Authorization", format!("Bearer {}", provider.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
+        let result = build_test_request(client, provider, model)
             .send()
             .await;
 
@@ -251,18 +267,8 @@ pub async fn test_mapping(state: State<'_, AppState>, mapping_idx: usize) -> Res
     let provider = config.providers.iter().find(|p| p.id == mapping.to_provider)
         .ok_or(format!("Provider '{}' not found", mapping.to_provider))?;
 
-    let url = format!("{}/v1/chat/completions", provider.base_url.trim_end_matches('/'));
-    let body = serde_json::json!({
-        "model": mapping.to_model,
-        "messages": [{"role": "user", "content": "hi"}],
-        "max_tokens": 5
-    });
-
     let start = std::time::Instant::now();
-    let resp = state.http_client.post(&url)
-        .header("Authorization", format!("Bearer {}", provider.api_key))
-        .header("Content-Type", "application/json")
-        .json(&body)
+    let resp = build_test_request(&state.http_client, provider, &mapping.to_model)
         .send()
         .await
         .map_err(|e| format!("Request failed: {}", e))?;
@@ -321,17 +327,7 @@ pub async fn heartbeat_check(state: State<'_, AppState>) -> Result<Vec<Heartbeat
             None => continue,
         };
 
-        let url = format!("{}/v1/chat/completions", provider.base_url.trim_end_matches('/'));
-        let body = serde_json::json!({
-            "model": mapping.to_model,
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 1
-        });
-
-        let resp = state.http_client.post(&url)
-            .header("Authorization", format!("Bearer {}", provider.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
+        let resp = build_test_request(&state.http_client, provider, &mapping.to_model)
             .timeout(std::time::Duration::from_secs(10))
             .send()
             .await;
