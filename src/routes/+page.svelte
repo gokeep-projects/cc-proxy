@@ -109,9 +109,10 @@
   }
 
   async function deleteProvider(id: string) {
-    if (!confirm("确定删除此提供商？")) return;
+    if (!await customConfirm("确定删除此提供商？")) return;
     config.providers = config.providers.filter(p => p.id !== id);
     await doSave();
+    await addOpLog('删除提供商', config.providers.find(p => p.id === id)?.name || id);
   }
 
   async function testProvider(id: string) {
@@ -148,7 +149,7 @@
   }
 
   async function deleteMapping(idx: number) {
-    if (!confirm("确定删除此映射？")) return;
+    if (!await customConfirm("确定删除此映射？")) return;
     const m = config.model_mappings[idx];
     config.model_mappings = config.model_mappings.filter((_, i) => i !== idx);
     await doSave(); await addOpLog("删除映射", m.from);
@@ -239,6 +240,56 @@
   async function copyText(text: string) { await navigator.clipboard.writeText(text); }
 
   let mappingProviderModels = $derived(mForm.to_provider ? (getProviderById(mForm.to_provider)?.models ?? []) : []);
+
+  // ── Settings ──
+  let showSettings = $state(false);
+
+  // ── Custom confirm dialog ──
+  let confirmMsg = $state("");
+  let confirmResolve: ((v: boolean) => void) | null = null;
+  function customConfirm(msg: string): Promise<boolean> {
+    confirmMsg = msg;
+    return new Promise(resolve => { confirmResolve = resolve; });
+  }
+  function confirmYes() { confirmResolve?.(true); confirmMsg = ""; }
+  function confirmNo() { confirmResolve?.(false); confirmMsg = ""; }
+
+  // ── Code generation for simulate ──
+  let simCodeLang = $state<"curl" | "python" | "go" | "rust">("curl");
+  function genCode(): string {
+    const proto = config.proxy.https ? "https" : "http";
+    const base = proto + "://127.0.0.1:" + config.proxy.port;
+    const endpoint = simApiType === "responses" ? "/v1/responses" : "/v1/chat/completions";
+    const url = base + endpoint;
+    const body = simApiType === "responses"
+      ? JSON.stringify({ model: simModel, input: simMessage, stream: false })
+      : JSON.stringify({ model: simModel, messages: [{ role: "user", content: simMessage }], stream: false });
+
+    if (simCodeLang === "curl") {
+      return `curl -X POST '${url}' \\\n  -H 'Content-Type: application/json' \\\n  -d '${body}'`;
+    }
+    if (simCodeLang === "python") {
+      return `import requests\n\nresp = requests.post("${url}",\n    json=${body})\nprint(resp.json())`;
+    }
+    if (simCodeLang === "go") {
+      return `resp, _ := http.Post("${url}", "application/json", strings.NewReader(\`${body}\`))\ndefer resp.Body.Close()\nbody, _ := io.ReadAll(resp.Body)`;
+    }
+    return `let resp = reqwest::Client::new()\n    .post("${url}")\n    .json(&serde_json::json!(${body}))\n    .send().await?;`;
+  }
+
+  // ── Log export ──
+  let showExportModal = $state(false);
+  let exportRange = $state<"all" | "last100" | "last50">("all");
+  function exportLogs() {
+    const data = exportRange === "all" ? logs : logs.slice(-(exportRange === "last100" ? 100 : 50));
+    const text = data.map(l => fmtLog(l).text).join("\n");
+    const blob = new Blob([text], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "cc-proxy-logs-" + new Date().toISOString().slice(0, 10) + ".txt";
+    a.click();
+    showExportModal = false;
+  }
 </script>
 
 <div class={dark ? "dark" : ""} style="height:100vh;display:flex;flex-direction:column;font-family:Inter,-apple-system,sans-serif;font-size:13px;" class:bg-slate-100={!dark} class:bg-slate-900={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
@@ -261,7 +312,7 @@
     </div>
   </header>
   <div class="flex flex-1 overflow-hidden">
-    <div class="overflow-y-auto p-4 space-y-4 flex-shrink-0" style="width:{leftPct}%">
+    <div class="overflow-y-auto p-4 space-y-4" style="width:{logsOpen ? leftPct + '%' : 'calc(100% - 40px)'}">
 
       <!-- Proxy Settings -->
       <div class="rounded-xl border p-4" class:bg-white={!dark} class:bg-slate-800={dark} class:border-slate-200={!dark} class:border-slate-700={dark}>
@@ -383,6 +434,7 @@
               <input type="checkbox" bind:checked={autoScroll} class="accent-indigo-500" />
               自动
             </label>
+            <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-gray-700={dark} class:text-gray-300={dark} class:border-gray-600={dark} class:bg-slate-200={!dark} class:text-slate-600={!dark} class:border-slate-300={!dark} onclick={() => showExportModal = true}>导出</button>
             <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-gray-700={dark} class:text-gray-300={dark} class:border-gray-600={dark} class:bg-slate-200={!dark} class:text-slate-600={!dark} class:border-slate-300={!dark} onclick={handleClearLogs}>清空</button>
             <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-gray-700={dark} class:text-gray-300={dark} class:border-gray-600={dark} class:bg-slate-200={!dark} class:text-slate-600={!dark} class:border-slate-300={!dark} onclick={() => logsOpen = false}>✕</button>
           </div>
@@ -566,7 +618,83 @@
         {#if simResponse}
           <pre class="bg-gray-900 text-green-400 text-[11px] font-mono p-3 rounded overflow-x-auto max-h-60 overflow-y-auto">{simResponse}</pre>
         {/if}
+        <div class="mt-3 border-t pt-3" class:border-slate-200={!dark} class:border-slate-700={dark}>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-xs font-medium" class:text-slate-500={!dark} class:text-slate-400={dark}>生成代码</span>
+            {#each (["curl", "python", "go", "rust"] as const) as lang}
+              <button class="px-2 py-0.5 text-[11px] rounded border cursor-pointer" class:bg-indigo-600={simCodeLang === lang} class:text-white={simCodeLang === lang} class:border-indigo-600={simCodeLang === lang} class:bg-slate-50={simCodeLang !== lang && !dark} class:bg-slate-700={simCodeLang !== lang && dark} class:border-slate-200={simCodeLang !== lang && !dark} class:border-slate-600={simCodeLang !== lang && dark} onclick={() => simCodeLang = lang}>{lang}</button>
+            {/each}
+            <button class="px-2 py-0.5 text-[11px] rounded bg-indigo-600 text-white border border-indigo-600 cursor-pointer" onclick={() => copyText(genCode())}>复制</button>
+          </div>
+          <pre class="text-[11px] font-mono p-2 rounded overflow-x-auto" class:bg-slate-100={!dark} class:bg-slate-900={dark}>{genCode()}</pre>
+        </div>
       </div>
     </div>
   {/if}
+
+  <!-- Settings Modal -->
+  {#if showSettings}
+    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div class="rounded-2xl shadow-2xl p-6 w-[400px]" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-sm font-semibold">设置</h3>
+          <button class="text-lg cursor-pointer border-none bg-transparent" class:text-slate-400={!dark} class:text-slate-500={dark} onclick={() => showSettings = false}>✕</button>
+        </div>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs">主题</span>
+            <button class="px-3 py-1 text-xs rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => dark = !dark}>{dark ? "🌙 暗黑" : "☀️ 明亮"}</button>
+          </div>
+          <div class="border-t pt-3" class:border-slate-200={!dark} class:border-slate-700={dark}>
+            <p class="text-xs font-semibold mb-2" class:text-slate-500={!dark} class:text-slate-400={dark}>关于</p>
+            <div class="text-xs space-y-1" class:text-slate-600={!dark} class:text-slate-400={dark}>
+              <p>产品: CC Proxy</p>
+              <p>版本: 2.0.0</p>
+              <p>描述: AI 模型代理路由工具</p>
+              <p>协议: Claude/Codex → OpenAI 兼容</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Custom Confirm Dialog -->
+  {#if confirmMsg}
+    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div class="rounded-xl shadow-2xl p-5 w-[320px]" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
+        <p class="text-sm mb-4">{confirmMsg}</p>
+        <div class="flex justify-end gap-2">
+          <button class="px-3 py-1.5 text-xs rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={confirmNo}>取消</button>
+          <button class="px-3 py-1.5 text-xs rounded bg-red-600 text-white border border-red-600 hover:bg-red-700 cursor-pointer" onclick={confirmYes}>确定</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Export Logs Modal -->
+  {#if showExportModal}
+    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div class="rounded-xl shadow-2xl p-5 w-[320px]" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
+        <h3 class="text-sm font-semibold mb-3">导出日志</h3>
+        <div class="space-y-2 mb-4">
+          {#each ([["all", "全部"], ["last100", "最近100条"], ["last50", "最近50条"]] as const) as [val, label]}
+            <label class="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="radio" bind:group={exportRange} value={val} class="accent-indigo-500" />
+              {label}
+            </label>
+          {/each}
+        </div>
+        <div class="flex justify-end gap-2">
+          <button class="px-3 py-1.5 text-xs rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => showExportModal = false}>取消</button>
+          <button class="px-3 py-1.5 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer" onclick={exportLogs}>导出</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Settings button (bottom-left) -->
+  <button class="fixed bottom-4 left-4 w-8 h-8 rounded-full flex items-center justify-center shadow-lg cursor-pointer border z-40" class:bg-white={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => showSettings = true}>
+    <svg class="w-4 h-4" class:text-slate-500={!dark} class:text-slate-300={dark} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+  </button>
 </div>
