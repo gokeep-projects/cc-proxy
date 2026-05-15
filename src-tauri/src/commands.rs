@@ -221,6 +221,24 @@ pub async fn test_provider_models(state: State<'_, AppState>, provider_id: Strin
         }
     }
 
+    // Log the test
+    let summary = results.iter().map(|r| format!("{}: {}", r.model, if r.success { "✓" } else { "✗" })).collect::<Vec<_>>().join(", ");
+    state.log_store.push(RequestLog {
+        id: LogStore::new_id(),
+        timestamp: chrono::Utc::now(),
+        method: "OP".to_string(),
+        path: "测试提供商".to_string(),
+        model_in: provider.name.clone(),
+        model_out: String::new(),
+        provider: provider.id.clone(),
+        status: if results.iter().all(|r| r.success) { 200 } else { 500 },
+        latency_ms: results.iter().map(|r| r.latency_ms).sum(),
+        prompt_tokens: None,
+        completion_tokens: None,
+        request_body: serde_json::Value::Null,
+        response_body: serde_json::Value::String(summary),
+    });
+
     Ok(results)
 }
 
@@ -258,6 +276,15 @@ pub async fn test_mapping(state: State<'_, AppState>, mapping_idx: usize) -> Res
             .ok()
             .and_then(|v| v["model"].as_str().map(|s| s.to_string()))
             .unwrap_or_default();
+        state.log_store.push(RequestLog {
+            id: LogStore::new_id(), timestamp: chrono::Utc::now(),
+            method: "OP".to_string(), path: "测试映射".to_string(),
+            model_in: mapping.from.clone(), model_out: model_out.clone(),
+            provider: provider.id.clone(), status, latency_ms: latency,
+            prompt_tokens: None, completion_tokens: None,
+            request_body: serde_json::Value::Null,
+            response_body: serde_json::Value::String(format!("✓ {}ms", latency)),
+        });
         Ok(TestResult {
             success: true,
             message: format!("{} → {} OK", mapping.from, model_out),
@@ -268,6 +295,15 @@ pub async fn test_mapping(state: State<'_, AppState>, mapping_idx: usize) -> Res
             .ok()
             .and_then(|v| v["error"]["message"].as_str().map(|s| s.to_string()))
             .unwrap_or(format!("HTTP {}", status));
+        state.log_store.push(RequestLog {
+            id: LogStore::new_id(), timestamp: chrono::Utc::now(),
+            method: "OP".to_string(), path: "测试映射".to_string(),
+            model_in: mapping.from.clone(), model_out: mapping.to_model.clone(),
+            provider: provider.id.clone(), status, latency_ms: latency,
+            prompt_tokens: None, completion_tokens: None,
+            request_body: serde_json::Value::Null,
+            response_body: serde_json::Value::String(format!("✗ {}", msg)),
+        });
         Ok(TestResult { success: false, message: msg, latency_ms: latency })
     }
 }

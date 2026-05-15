@@ -69,7 +69,7 @@
     const info = await startProxy();
     status = await getProxyStatus();
     logsOpen = true;
-    await addOpLog("启动代理", (status.https ? "HTTPS" : "HTTP") + " " + info.host + ":" + info.port + " 启动成功");
+    await addOpLog("启动代理", "HTTP " + info.host + ":" + info.port + " 启动成功");
   }
 
   async function handleStop() {
@@ -178,16 +178,14 @@
   async function sendSimRequest() {
     simLoading = true; simResponse = "";
     try {
-      const proto = config.proxy.https ? "https" : "http";
-      const base = proto + "://127.0.0.1:" + config.proxy.port;
-      let url: string;
+      let url = "http://127.0.0.1:" + config.proxy.port;
       let body: any;
 
       if (simApiType === "responses") {
-        url = base + "/v1/responses";
+        url += "/v1/responses";
         body = { model: simModel, input: simMessage, stream: false };
       } else {
-        url = base + "/v1/chat/completions";
+        url += "/v1/chat/completions";
         body = { model: simModel, messages: [{ role: "user", content: simMessage }], stream: false };
       }
 
@@ -198,7 +196,7 @@
       });
       simResponse = JSON.stringify(await res.json(), null, 2);
     } catch(e: any) {
-      simResponse = "请求失败: " + e.message + "\n\n提示: 请确保代理已启动，且端口正确。如果使用HTTPS，浏览器可能阻止自签名证书请求。";
+      simResponse = "请求失败: " + e.message + "\n\n提示: 请确保代理已启动且端口正确";
     }
     simLoading = false;
   }
@@ -236,7 +234,7 @@
     return r.success ? "bg-green-800 text-green-200" : "bg-red-800 text-red-200";
   }
 
-  function connBase() { return (status.https ? "https" : "http") + "://" + status.host + ":" + status.port; }
+  function connBase() { return "http://" + status.host + ":" + status.port; }
   async function copyText(text: string) { await navigator.clipboard.writeText(text); }
 
   let mappingProviderModels = $derived(mForm.to_provider ? (getProviderById(mForm.to_provider)?.models ?? []) : []);
@@ -257,8 +255,7 @@
   // ── Code generation for simulate ──
   let simCodeLang = $state<"curl" | "python" | "go" | "rust">("curl");
   function genCode(): string {
-    const proto = config.proxy.https ? "https" : "http";
-    const base = proto + "://127.0.0.1:" + config.proxy.port;
+    const base = "http://127.0.0.1:" + config.proxy.port;
     const endpoint = simApiType === "responses" ? "/v1/responses" : "/v1/chat/completions";
     const url = base + endpoint;
     const body = simApiType === "responses"
@@ -319,10 +316,6 @@
         <div class="flex items-center gap-4">
           <label class="text-xs font-medium" class:text-slate-500={!dark} class:text-slate-400={dark}>端口</label>
           <input type="number" bind:value={config.proxy.port} onchange={doSave} class="w-24 rounded border px-2 py-1 text-xs" class:bg-white={!dark} class:bg-slate-900={dark} class:border-slate-200={!dark} class:border-slate-600={dark} class:text-slate-800={!dark} class:text-slate-200={dark} />
-          <label class="text-xs font-medium flex items-center gap-1.5 cursor-pointer" class:text-slate-500={!dark} class:text-slate-400={dark}>
-            <input type="checkbox" bind:checked={config.proxy.https} onchange={doSave} class="accent-indigo-500" />
-            HTTPS
-          </label>
         </div>
       </div>
 
@@ -593,7 +586,10 @@
   {#if showSimModal}
     <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div class="rounded-2xl shadow-2xl p-6 w-[700px] max-h-[80vh] overflow-y-auto" class:bg-white={!dark} class:bg-slate-800={dark} class:text-slate-800={!dark} class:text-slate-200={dark}>
-        <h3 class="text-sm font-semibold mb-4">模拟请求</h3>
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-sm font-semibold">模拟请求</h3>
+          <button class="text-lg cursor-pointer border-none bg-transparent" class:text-slate-400={!dark} class:text-slate-500={dark} onclick={() => showSimModal = false}>✕</button>
+        </div>
         <div class="flex items-center gap-2 mb-3 p-2 rounded border" class:bg-slate-50={!dark} class:bg-slate-900={dark} class:border-slate-200={!dark} class:border-slate-700={dark}>
           <span class="text-xs font-mono px-2 py-1 rounded bg-indigo-600 text-white">POST</span>
           <span class="flex-1 text-xs font-mono" class:text-slate-500={!dark} class:text-slate-400={dark}>{connBase()}{simApiType === "responses" ? "/v1/responses" : "/v1/chat/completions"}</span>
@@ -613,7 +609,6 @@
         <textarea bind:value={simMessage} rows={4} placeholder="消息内容..." class="w-full rounded border px-2 py-1.5 text-xs mb-3 resize-y" class:bg-white={!dark} class:bg-slate-900={dark} class:border-slate-200={!dark} class:border-slate-600={dark} class:text-slate-800={!dark} class:text-slate-200={dark}></textarea>
         <div class="flex gap-2 mb-3">
           <button class="px-4 py-1.5 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer" onclick={sendSimRequest} disabled={simLoading}>{simLoading ? "发送中..." : "▶ 发送"}</button>
-          <button class="px-3 py-1.5 text-xs rounded border cursor-pointer" class:bg-slate-50={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => showSimModal = false}>关闭</button>
         </div>
         {#if simResponse}
           <pre class="bg-gray-900 text-green-400 text-[11px] font-mono p-3 rounded overflow-x-auto max-h-60 overflow-y-auto">{simResponse}</pre>
