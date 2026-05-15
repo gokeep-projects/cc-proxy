@@ -7,6 +7,11 @@ use config::Config;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use store::LogStore;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    Manager,
+};
 use tokio::sync::watch;
 
 #[derive(Clone)]
@@ -28,13 +33,21 @@ pub fn run() {
         config: Arc::new(Mutex::new(config)),
         config_path,
         log_store,
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .pool_max_idle_per_host(32)
+            .build()
+            .unwrap(),
         proxy_running: Arc::new(Mutex::new(false)),
         shutdown_tx: Arc::new(Mutex::new(None)),
     };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
@@ -51,6 +64,37 @@ pub fn run() {
             commands::generate_self_signed_cert,
             commands::import_cc_switch_config,
         ])
+        .setup(|app| {
+            // System tray
+            let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+
+            TrayIconBuilder::new()
+                .tooltip("CC Proxy")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            w.show().ok();
+                            w.set_focus().ok();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                window.hide().ok();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -65,7 +109,11 @@ pub async fn run_headless(config_path: PathBuf, port: Option<u16>) {
         config: Arc::new(Mutex::new(config)),
         config_path,
         log_store,
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .pool_max_idle_per_host(32)
+            .build()
+            .unwrap(),
         proxy_running: Arc::new(Mutex::new(true)),
         shutdown_tx: Arc::new(Mutex::new(None)),
     };
@@ -94,5 +142,5 @@ fn get_config_path() -> PathBuf {
         return cwd_config;
     }
 
-    cwd_config
+    config_in_exe_dir
 }
