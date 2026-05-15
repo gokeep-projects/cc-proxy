@@ -7,11 +7,7 @@ use config::Config;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use store::LogStore;
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
-    Manager,
-};
+use tauri::Manager;
 use tokio::sync::watch;
 
 #[derive(Clone)]
@@ -64,31 +60,6 @@ pub fn run() {
             commands::generate_self_signed_cert,
             commands::import_cc_switch_config,
         ])
-        .setup(|app| {
-            // System tray
-            let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
-
-            TrayIconBuilder::new()
-                .tooltip("CC Proxy")
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            w.show().ok();
-                            w.set_focus().ok();
-                        }
-                    }
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
-                })
-                .build(app)?;
-
-            Ok(())
-        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

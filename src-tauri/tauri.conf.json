@@ -10,9 +10,14 @@
     "frontendDist": "../build"
   },
   "app": {
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": false,
+      "tooltip": "CC Proxy"
+    },
     "windows": [
       {
-        "title": "CC Proxy - AI Model Router",
+        "title": "CC Proxy",
         "width": 1200,
         "height": 760,
         "minWidth": 800,
