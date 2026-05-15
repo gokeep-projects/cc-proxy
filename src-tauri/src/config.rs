@@ -61,7 +61,7 @@ fn default_log_capacity() -> usize {
     10000
 }
 fn default_heartbeat() -> u64 {
-    30
+    180
 }
 fn default_true() -> bool {
     true

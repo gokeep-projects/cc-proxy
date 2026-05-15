@@ -54,16 +54,33 @@ pub async fn proxy_handler(
     chat_body["model"] = json!(model_out);
 
     let is_streaming = chat_body["stream"].as_bool().unwrap_or(false);
-    let target_url = format!("{}/v1/chat/completions", provider.base_url.trim_end_matches('/'));
+    let base = provider.base_url.trim_end_matches('/');
+    let target_url = if base.ends_with("/anthropic") {
+        // Anthropic-compatible endpoint: POST base_url/v1/messages
+        format!("{}/v1/messages", base)
+    } else {
+        format!("{}/v1/chat/completions", base)
+    };
+    let is_anthropic_endpoint = base.ends_with("/anthropic");
 
     let client = &state.http_client;
-    let req = client
-        .post(&target_url)
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", provider.api_key))
-        .body(serde_json::to_vec(&chat_body).unwrap());
+    let mut req_builder = client.post(&target_url).header("Content-Type", "application/json");
 
-    let upstream_resp = match req.send().await {
+    if is_anthropic_endpoint {
+        // Anthropic format: use x-api-key header and anthropic-version
+        req_builder = req_builder
+            .header("x-api-key", &provider.api_key)
+            .header("anthropic-version", "2023-06-01");
+        // Convert chat format to Anthropic messages format
+        let anthropic_body = convert_to_anthropic_format(&chat_body);
+        req_builder = req_builder.body(serde_json::to_vec(&anthropic_body).unwrap());
+    } else {
+        req_builder = req_builder
+            .header("Authorization", format!("Bearer {}", provider.api_key))
+            .body(serde_json::to_vec(&chat_body).unwrap());
+    }
+
+    let upstream_resp = match req_builder.send().await {
         Ok(r) => r,
         Err(e) => {
             return Response::builder()
@@ -213,10 +230,42 @@ fn resolve_provider(config: &Config, model: &str) -> Option<(Provider, String)> 
             return Some((provider.clone(), mapping.to_model.clone()));
         }
     }
-    // Fallback: use first provider's first model
     if let Some(provider) = config.providers.first() {
         let model = provider.models.first().cloned().unwrap_or_else(|| "default".to_string());
         return Some((provider.clone(), model));
     }
     None
+}
+
+fn convert_to_anthropic_format(chat_body: &Value) -> Value {
+    let messages = chat_body["messages"].as_array().cloned().unwrap_or_default();
+    let mut system = String::new();
+    let mut anthropic_messages: Vec<Value> = vec![];
+
+    for msg in &messages {
+        let role = msg["role"].as_str().unwrap_or("user");
+        if role == "system" {
+            system = msg["content"].as_str().unwrap_or("").to_string();
+        } else {
+            anthropic_messages.push(json!({
+                "role": role,
+                "content": msg["content"]
+            }));
+        }
+    }
+
+    let mut body = json!({
+        "model": chat_body["model"],
+        "messages": anthropic_messages,
+        "max_tokens": chat_body["max_tokens"].as_u64().unwrap_or(4096)
+    });
+
+    if !system.is_empty() {
+        body["system"] = json!(system);
+    }
+    if let Some(stream) = chat_body["stream"].as_bool() {
+        body["stream"] = json!(stream);
+    }
+
+    body
 }
