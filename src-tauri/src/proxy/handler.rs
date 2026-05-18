@@ -155,8 +155,9 @@ pub async fn proxy_handler(
         Response::builder()
             .status(status)
             .header("Content-Type", "text/event-stream")
-            .header("Cache-Control", "no-cache")
+            .header("Cache-Control", "no-cache, no-transform")
             .header("Connection", "keep-alive")
+            .header("X-Accel-Buffering", "no")
             .body(Body::from_stream(converted_stream))
             .unwrap()
     } else {
@@ -397,7 +398,9 @@ pub async fn messages_handler(
         Response::builder()
             .status(200)
             .header("Content-Type", "text/event-stream")
-            .header("Cache-Control", "no-cache")
+            .header("Cache-Control", "no-cache, no-transform")
+            .header("Connection", "keep-alive")
+            .header("X-Accel-Buffering", "no")
             .body(Body::from_stream(converted_stream))
             .unwrap()
     } else {
