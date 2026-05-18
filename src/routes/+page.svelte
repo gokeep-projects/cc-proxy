@@ -70,18 +70,33 @@
   async function doSave() { await saveConfig(config); }
 
   async function handleStart() {
-    const info = await startProxy();
-    status = await getProxyStatus();
-    logsOpen = true;
-    startHeartbeat();
-    await addOpLog("启动代理", "HTTP " + info.host + ":" + info.port + " 启动成功");
+    loading = true;
+    try {
+      const info = await startProxy();
+      status = await getProxyStatus();
+      logsOpen = true;
+      startHeartbeat();
+      await addOpLog("启动代理", "HTTP " + info.host + ":" + info.port + " 启动成功");
+    } catch (e: any) {
+      const msg = String(e);
+      await addOpLog("启动失败", msg);
+      await customConfirm("❌ 启动失败: " + msg);
+    }
+    loading = false;
   }
 
   async function handleStop() {
-    await stopProxy();
-    status = await getProxyStatus();
-    stopHeartbeat();
-    await addOpLog("停止代理", "代理服务已停止");
+    loading = true;
+    try {
+      await stopProxy();
+      status = await getProxyStatus();
+      stopHeartbeat();
+      await addOpLog("停止代理", "代理服务已停止");
+    } catch (e: any) {
+      await addOpLog("停止失败", String(e));
+      await customConfirm("❌ 停止失败: " + String(e));
+    }
+    loading = false;
   }
 
   function openAddProvider() {
@@ -353,9 +368,9 @@
           </span>
           <span class="text-xs font-medium" class:text-emerald-100={heartbeatStatus !== "warn"} class:text-yellow-100={heartbeatStatus === "warn"}>{heartbeatStatus === "warn" ? "映射异常" : "运行中"} · 端口 {status.port}</span>
         </button>
-        <button class="px-3 py-1.5 text-xs rounded bg-red-600 text-white border border-red-600 hover:bg-red-700 cursor-pointer" onclick={handleStop}>停止</button>
+        <button class="px-3 py-1.5 text-xs rounded bg-red-600 text-white border border-red-600 hover:bg-red-700 cursor-pointer" onclick={handleStop} disabled={loading}>{loading ? "停止中..." : "停止"}</button>
       {:else}
-        <button class="px-3 py-1 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer" onclick={handleStart}>▶ 启动</button>
+        <button class="px-3 py-1 text-xs rounded bg-indigo-600 text-white border border-indigo-600 hover:bg-indigo-700 cursor-pointer" onclick={handleStart} disabled={loading}>{loading ? "启动中..." : "▶ 启动"}</button>
       {/if}
       <button class="px-2 py-1 text-sm rounded border cursor-pointer" class:bg-slate-100={!dark} class:bg-slate-700={dark} class:border-slate-200={!dark} class:border-slate-600={dark} onclick={() => dark = !dark}>{dark ? "☀️" : "🌙"}</button>
     </div>
