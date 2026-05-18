@@ -444,7 +444,12 @@
             {#each config.model_mappings as m, i (i)}
               <tr class="border-t" class:border-slate-100={!dark} class:border-slate-700={dark}>
                 <td class="py-2 px-2 font-mono text-indigo-500">{m.from}</td>
-                <td class="py-1 px-1 text-center"><span class="text-indigo-400 text-base font-bold {status.running ? 'animate-flow' : ''}">⟶</span></td>
+                <td class="py-1 px-1 text-center">
+                  <svg class="w-5 h-5 mx-auto {status.running ? 'animate-flow-svg' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: #818cf8;">
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                    <polyline points="14 7 19 12 14 17"/>
+                  </svg>
+                </td>
                 <td class="py-2 px-2">{getProviderById(m.to_provider)?.name ?? m.to_provider}</td>
                 <td class="py-2 px-2 font-mono">{m.to_model}</td>
                 <td class="py-2 px-2">
@@ -787,12 +792,11 @@
     display: none;
   }
   @keyframes flow {
-    0% { transform: translateX(0); opacity: 0.4; }
-    50% { transform: translateX(4px); opacity: 1; }
-    100% { transform: translateX(0); opacity: 0.4; }
+    0% { transform: translateX(0); opacity: 0.6; }
+    50% { transform: translateX(3px); opacity: 1; }
+    100% { transform: translateX(0); opacity: 0.6; }
   }
-  .animate-flow {
-    animation: flow 1.2s ease-in-out infinite;
-    display: inline-block;
+  .animate-flow-svg {
+    animation: flow 0.8s ease-in-out infinite;
   }
 </style>
