@@ -348,7 +348,7 @@ pub fn chat_chunk_to_anthropic_event(chunk: &Value) -> String {
         ));
     }
 
-    // Done
+    // Done - emit stop events
     if finish_reason == Some("stop") || finish_reason == Some("length") || finish_reason == Some("tool_calls") {
         out.push_str(&format!(
             "event: content_block_stop\ndata: {}\n\n",

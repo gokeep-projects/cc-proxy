@@ -363,8 +363,7 @@ pub async fn messages_handler(
                         for line in text.lines() {
                             if let Some(data) = line.strip_prefix("data: ") {
                                 if data == "[DONE]" {
-                                    output.push_str("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n");
-                                    continue;
+                                    continue; // stop events emitted by chat_chunk_to_anthropic_event
                                 }
                                 if let Ok(chunk_val) = serde_json::from_str::<Value>(data) {
                                     let delta = convert::chat_chunk_to_anthropic_event(&chunk_val);
