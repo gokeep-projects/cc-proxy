@@ -8,14 +8,18 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            ext: .exe
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            ext: .deb
           - os: macos-latest
-            target: aarch64-apple-darwin
+            target: x86_64-apple-darwin
+            ext: .dmg
 
     runs-on: ${{ matrix.os }}
 
@@ -23,13 +27,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -39,21 +40,22 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
 
-      - run: pnpm install
+      - name: Install frontend deps
+        run: pnpm install --no-frozen-lockfile
 
-      - name: Build
+      - name: Build Tauri
         run: pnpm tauri build
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: cc-proxy-${{ matrix.os }}
+          name: cc-proxy-${{ matrix.os }}-${{ matrix.target }}
           path: |
             src-tauri/target/release/bundle/**/*.exe
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.deb
             src-tauri/target/release/bundle/**/*.AppImage
             src-tauri/target/release/bundle/**/*.dmg
+          if-no-files-found: warn
