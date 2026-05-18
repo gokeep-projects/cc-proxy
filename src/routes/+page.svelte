@@ -16,7 +16,7 @@
   let logs = $state<RequestLog[]>([]);
   let autoScroll = $state(true);
   let logsOpen = $state(false);
-  let leftPct = $state(60);
+  let leftPct = $state(68);
 
   let showProviderModal = $state(false);
   let showMappingModal = $state(false);
@@ -210,7 +210,7 @@
   function startDrag(e: MouseEvent) {
     const startX = e.clientX, startW = leftPct, total = window.innerWidth;
     function onMove(ev: MouseEvent) {
-      leftPct = (Math.max(300, Math.min(total - 340, (startW / 100) * total + ev.clientX - startX)) / total) * 100;
+      leftPct = (Math.max(400, Math.min(total - 280, (startW / 100) * total + ev.clientX - startX)) / total) * 100;
     }
     function onUp() { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); }
     window.addEventListener("mousemove", onMove);
@@ -444,7 +444,7 @@
             {#each config.model_mappings as m, i (i)}
               <tr class="border-t" class:border-slate-100={!dark} class:border-slate-700={dark}>
                 <td class="py-2 px-2 font-mono text-indigo-500">{m.from}</td>
-                <td class="py-1 px-1 text-center"><span class="text-indigo-400 text-base font-bold">⟶</span></td>
+                <td class="py-1 px-1 text-center"><span class="text-indigo-400 text-base font-bold {status.running ? 'animate-flow' : ''}">⟶</span></td>
                 <td class="py-2 px-2">{getProviderById(m.to_provider)?.name ?? m.to_provider}</td>
                 <td class="py-2 px-2 font-mono">{m.to_model}</td>
                 <td class="py-2 px-2">
@@ -785,5 +785,14 @@
   }
   :global(.overflow-y-auto::-webkit-scrollbar) {
     display: none;
+  }
+  @keyframes flow {
+    0% { transform: translateX(0); opacity: 0.4; }
+    50% { transform: translateX(4px); opacity: 1; }
+    100% { transform: translateX(0); opacity: 0.4; }
+  }
+  .animate-flow {
+    animation: flow 1.2s ease-in-out infinite;
+    display: inline-block;
   }
 </style>
