@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-pub fn responses_to_chat(body: &Value) -> Value {
+pub fn responses_to_chat(body: &Value, model: &str) -> Value {
     let mut messages: Vec<Value> = vec![];
 
     if let Some(instructions) = body["instructions"].as_str() {
@@ -313,5 +313,32 @@ mod tests {
         assert_eq!(events[0].0, "response.output_text.done");
         assert_eq!(events[1].0, "response.output_item.done");
         assert_eq!(events[2].0, "response.completed");
+    }
+}
+
+// Convert OpenAI chat stream chunk to Anthropic SSE event
+pub fn chat_chunk_to_anthropic_event(chunk: &Value) -> String {
+    let delta = &chunk["choices"][0]["delta"];
+    let content = delta["content"].as_str().unwrap_or("");
+    let finish_reason = chunk["choices"][0]["finish_reason"].as_str();
+
+    let index = chunk["choices"][0]["index"].as_u64().unwrap_or(0);
+
+    if !content.is_empty() {
+        format!("event: content_block_delta\ndata: {}\n\n",
+            serde_json::to_string(&json!({
+                "type": "content_block_delta",
+                "index": index,
+                "delta": {"type": "text_delta", "text": content}
+            })).unwrap()
+        )
+    } else if finish_reason == Some("stop") || finish_reason == Some("length") {
+        format!("event: message_stop\ndata: {}\n\n",
+            serde_json::to_string(&json!({
+                "type": "message_stop"
+            })).unwrap()
+        )
+    } else {
+        String::new()
     }
 }
