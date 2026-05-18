@@ -316,29 +316,53 @@ mod tests {
     }
 }
 
-// Convert OpenAI chat stream chunk to Anthropic SSE event
+// Convert OpenAI chat stream chunk to Anthropic SSE events
 pub fn chat_chunk_to_anthropic_event(chunk: &Value) -> String {
     let delta = &chunk["choices"][0]["delta"];
+    let role = delta["role"].as_str();
     let content = delta["content"].as_str().unwrap_or("");
+    let reasoning = delta["reasoning_content"].as_str().unwrap_or("");
+    let text = if !content.is_empty() { content } else { reasoning };
     let finish_reason = chunk["choices"][0]["finish_reason"].as_str();
-
     let index = chunk["choices"][0]["index"].as_u64().unwrap_or(0);
 
-    if !content.is_empty() {
-        format!("event: content_block_delta\ndata: {}\n\n",
-            serde_json::to_string(&json!({
-                "type": "content_block_delta",
-                "index": index,
-                "delta": {"type": "text_delta", "text": content}
-            })).unwrap()
-        )
-    } else if finish_reason == Some("stop") || finish_reason == Some("length") {
-        format!("event: message_stop\ndata: {}\n\n",
-            serde_json::to_string(&json!({
-                "type": "message_stop"
-            })).unwrap()
-        )
-    } else {
-        String::new()
+    let mut out = String::new();
+
+    // First chunk: emit message_start + content_block_start
+    if role == Some("assistant") {
+        out.push_str(&format!(
+            "event: message_start\ndata: {}\n\n",
+            json!({"type": "message_start", "message": {"id": chunk["id"], "type": "message", "role": "assistant", "model": chunk["model"], "content": [], "usage": null}})
+        ));
+        out.push_str(&format!(
+            "event: content_block_start\ndata: {}\n\n",
+            json!({"type": "content_block_start", "index": index, "content_block": {"type": "text", "text": ""}})
+        ));
     }
+
+    // Content delta
+    if !text.is_empty() {
+        out.push_str(&format!(
+            "event: content_block_delta\ndata: {}\n\n",
+            json!({"type": "content_block_delta", "index": index, "delta": {"type": "text_delta", "text": text}})
+        ));
+    }
+
+    // Done
+    if finish_reason == Some("stop") || finish_reason == Some("length") || finish_reason == Some("tool_calls") {
+        out.push_str(&format!(
+            "event: content_block_stop\ndata: {}\n\n",
+            json!({"type": "content_block_stop", "index": index})
+        ));
+        out.push_str(&format!(
+            "event: message_delta\ndata: {}\n\n",
+            json!({"type": "message_delta", "delta": {"stop_reason": if finish_reason == Some("length") { "max_tokens" } else { "end_turn" }, "stop_sequence": null}, "usage": chunk.get("usage")})
+        ));
+        out.push_str(&format!(
+            "event: message_stop\ndata: {}\n\n",
+            json!({"type": "message_stop"})
+        ));
+    }
+
+    out
 }
