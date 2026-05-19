@@ -44,13 +44,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
 
-      - name: Set version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Set version from tag (bash)
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os != 'Windows'
         run: |
-          TAG=${{ github.ref_name }}
-          VERSION=${TAG#v}
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
           echo "Version: $VERSION"
-          sed -i "s/\"version\": \"[0-9.]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          sed -i.bak "s/\"version\": \"[0-9.]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json && rm -f src-tauri/tauri.conf.json.bak
+
+      - name: Set version from tag (PowerShell)
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Windows'
+        run: |
+          $TAG = "${{ github.ref_name }}"
+          $VERSION = $TAG -replace '^v',''
+          Write-Host "Version: $VERSION"
+          (Get-Content src-tauri/tauri.conf.json) -replace '"version": "\d+\.\d+\.\d+"', '"version": "' + $VERSION + '"' | Set-Content src-tauri/tauri.conf.json
 
       - name: Install frontend deps
         run: pnpm install --no-frozen-lockfile
