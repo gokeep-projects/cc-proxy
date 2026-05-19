@@ -55,10 +55,9 @@ jobs:
       - name: Set version from tag (PowerShell)
         if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Windows'
         run: |
-          $TAG = "${{ github.ref_name }}"
-          $VERSION = $TAG -replace '^v',''
-          Write-Host "Version: $VERSION"
-          (Get-Content src-tauri/tauri.conf.json) -replace '"version": "\d+\.\d+\.\d+"', '"version": "' + $VERSION + '"' | Set-Content src-tauri/tauri.conf.json
+          $json = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $json.version = "${{ github.ref_name }}" -replace '^v',''
+          $json | ConvertTo-Json -Depth 10 | Set-Content src-tauri/tauri.conf.json
 
       - name: Install frontend deps
         run: pnpm install --no-frozen-lockfile
