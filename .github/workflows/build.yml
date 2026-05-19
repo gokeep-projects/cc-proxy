@@ -87,29 +87,30 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: List artifacts
+        run: find artifacts -type f -name "*.exe" -o -name "*.msi" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" | head -30
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           name: "CC Proxy ${{ github.ref_name }}"
           body: |
             ## CC Proxy ${{ github.ref_name }}
-
             多平台构建包（Windows / Linux / macOS）。
-
             ### 安装
-            - **Windows**: 下载 `.exe` 或 `.msi` 安装包
-            - **Linux**: 下载 `.deb` 或 `.AppImage`
-            - **macOS**: 下载 `.dmg`
-
-            ### CLI 使用
+            - **Windows**: `.exe` / `.msi`
+            - **Linux**: `.deb` / `.AppImage`
+            - **macOS**: `.dmg`
             ```bash
             cc-proxy --headless --port 9528 --config config.toml
             ```
-
-            详见 [README](https://github.com/gokeep-projects/cc-proxy#readme)
           draft: false
           prerelease: false
           files: |
-            artifacts/**/*
+            artifacts/*.exe
+            artifacts/*.msi
+            artifacts/*.deb
+            artifacts/*.AppImage
+            artifacts/*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
